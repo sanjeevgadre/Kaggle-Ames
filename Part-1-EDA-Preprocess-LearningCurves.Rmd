@@ -1,0 +1,450 @@
+---
+title: "Part I - EDA, PreProcess and Learning Curves"
+author: "Sanjeev Gadre"
+date: "June 28, 2019"
+output: 
+    md_document:
+        toc: TRUE
+---
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, echo = FALSE)
+```
+
+Loading the required libraries.
+
+```{r libraries, echo=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+library(gridExtra)
+
+```
+
+Loading required functions. Most of these functions are required for pre-processing of the data.
+
+```{r functions}
+na.count = function (dat){
+  dat %>% apply(., 2, is.na) %>% apply(.,2,sum) %>% .[.!=0]
+}
+
+```
+
+### Getting the Data
+
+1.  We start by getting a sense of the training data and its structure.
+2.  We add a column "SalePrice" to the test data and assign a default value of "1000".
+3.  Finally, we combide train and test data, for easier changes to the dataframe structure, imputing missing values and analysis.
+
+```{r get-data}
+train = read.csv("./data/train.csv")
+
+head(train)
+str(train)
+
+test = read.csv("./data/test.csv")
+test$SalePrice = 1000
+
+dat = rbind(train, test)
+
+indx = nrow(train)
+
+```
+
+1.  We change the data type for a few features to better align it with the type of feature data. Specifically, we convert  *MSSubClass*, *OverallQual*, *OverallCond* from `<int>` to `<fctr>`.
+2.  We identify the features in the train subset that report `NA` values
+
+```{r pre-proc-1}
+dat$MSSubClass = factor(dat$MSSubClass)
+dat$OverallCond = factor(dat$OverallCond)
+dat$OverallQual = factor(dat$OverallQual)
+
+na.count(dat[1:indx,])
+
+```
+
+Some features are *incorrectly* coded in that `NA` doesn't mean missing data but has a an alternate meaning. We
+convert `NA` to a more appropriate values for the following features:
+1.  When a house has *No Alley Access*, it is recorded under the column `Alley` as `NA` which is corrected to   `NoAccess`.
+2.  When a house has *No Basement*, it is recorded under the columns `BsmtQual`, `BsmtCond`, `BsmtExposure`, `BsmtFinType1`, `BsmtFinType2` as `NA` which is corrected to `NoBsmt`.
+3.  When a house has *No Fireplace*, it is recorded under the column `FireplaceQu` as `NA` which is corrected to `NoFpl`.
+4.  When a house has *No Garage*, it is recorded under the columns `GarageType`, `GarageFinish`, `GarageQual`, `GarageCond` as `NA` which is corrected to `NoGrg`.
+5.  When a house has *No Pool*, it is recorded under the column `PoolQc` as `NA` which is corrected to        `NoPool`.
+6.  When a house has *No Fence*, it is recorded under the column `Fence` as `NA` which is corrected to            `NoFence`.
+7.  When a house has *No Miscellaneous Features*, it is recorded under the column `MiscFeature` as `NA` which is corrected to `NoMisc`.
+
+We apply these changes to both train and test subsets
+
+8.  We identify the features in the train subset that are reporting `NA`
+
+```{r pre-proc-2}
+levels(dat$Alley) = c(levels(dat$Alley), "NoAccess")
+dat[is.na(dat$Alley), "Alley"] = "NoAccess"
+    
+levels(dat$BsmtQual) = c(levels(dat$BsmtQual), "NoBsmt")
+dat[is.na(dat$BsmtQual), "BsmtQual"] = "NoBsmt"  
+    
+levels(dat$BsmtCond) = c(levels(dat$BsmtCond), "NoBsmt")
+dat[is.na(dat$BsmtCond), "BsmtCond"] = "NoBsmt"
+    
+levels(dat$BsmtExposure) = c(levels(dat$BsmtExposure), "NoBsmt")
+dat[is.na(dat$BsmtExposure), "BsmtExposure"] = "NoBsmt"
+    
+levels(dat$BsmtFinType1) = c(levels(dat$BsmtFinType1), "NoBsmt")
+dat[is.na(dat$BsmtFinType1), "BsmtFinType1"] = "NoBsmt"
+    
+levels(dat$BsmtFinType2) = c(levels(dat$BsmtFinType2), "NoBsmt")
+dat[is.na(dat$BsmtFinType2), "BsmtFinType2"] = "NoBsmt"
+    
+levels(dat$FireplaceQu) = c(levels(dat$FireplaceQu), "NoFpl")
+dat[is.na(dat$FireplaceQu), "FireplaceQu"] = "NoFpl"
+    
+levels(dat$GarageType) = c(levels(dat$GarageType), "NoGrg")
+dat[is.na(dat$GarageType), "GarageType"] = "NoGrg"
+    
+levels(dat$GarageFinish) = c(levels(dat$GarageFinish), "NoGrg")
+dat[is.na(dat$GarageFinish), "GarageFinish"] = "NoGrg"
+    
+levels(dat$GarageQual) = c(levels(dat$GarageQual), "NoGrg")
+dat[is.na(dat$GarageQual), "GarageQual"] = "NoGrg"
+    
+levels(dat$GarageCond) = c(levels(dat$GarageCond), "NoGrg")
+dat[is.na(dat$GarageCond), "GarageCond"] = "NoGrg"
+    
+levels(dat$PoolQC) = c(levels(dat$PoolQC), "NoPool")
+dat[is.na(dat$PoolQC), "PoolQC"] = "NoPool"
+    
+levels(dat$Fence) = c(levels(dat$Fence), "NoFence")
+dat[is.na(dat$Fence), "Fence"] = "NoFence"
+    
+levels(dat$MiscFeature) = c(levels(dat$MiscFeature), "NoMisc")
+dat[is.na(dat$MiscFeature), "MiscFeature"] = "NoMisc"
+
+na.count(dat[1:indx,])
+
+```
+
+We get additional visibility to the features in the train subset reporting `NA` values
+
+```{r eda-1}
+print("Property Ids reporting NA for GarageYrBlt")
+dat[1:indx,] %>% .[is.na(.$GarageYrBlt),c("Id", "GarageType", "GarageYrBlt")]
+
+table(dat$Electrical[1:indx], dnn = "Elec. System Used") %>% prop.table() %>% round(digits = 4)
+table(dat$MasVnrType[1:indx], dnn = "Masonry Veneer Type") %>% prop.table() %>% round(digits = 4)
+
+hist(dat$MasVnrArea[1:indx], xlab = "Area", main = "Histogram of MasVnrArea")
+hist(dat$LotFrontage[1:indx], xlab = "Area", main = "Histogram of LotArea")
+
+```
+
+1.  All 81 properties reporting `NA` for `GarageYrBlt` also report that they have no garage. 
+2.  The most common value of `Electrical` is `SBrkr` and for `MasVnrType` is `None`
+3.  The distribution for `LotFrontage` and `MasVnrArea` is left skewed.
+
+We use the insights above to impute missing values to both the train and test subset for the 5 features analysed above
+
+1.  We make an experience-based assumption that a property's value is dependent on the presence or absence of a garage rather that the age of the garage. As such, we *drop* the feature `GarageYrBlt` as the information of the presence or absence of a garage is already captured in `GarageType`.
+2.  To the `NA` in `Electrical` and `MasVnrType` we impute the mode value of the respective feature based on the remaining train examples.
+3.  To the `NA` in `MasVnrArea` and `LotFrontage` we impute the median value of the respective feature based on the remaining train examples.
+4.  We verify that there indeed are no more missing values in the train subset.
+5.  Finally we identify the missing values in the test subset
+
+It is important to note that we *only* use the train examples to decide on the median and mode values to impute.
+
+```{r impute-data-1}
+dat[is.na(dat$Electrical), "Electrical"] = dat$Electrical[1:indx] %>% table() %>% which.max() %>% names()
+dat[is.na(dat$MasVnrType), "MasVnrType"] = dat$MasVnrType[1:indx] %>% table() %>% which.max() %>% names()
+dat[is.na(dat$MasVnrArea), "MasVnrArea"] = dat$MasVnrArea[1:indx] %>% median(., na.rm = TRUE)
+dat[is.na(dat$LotFrontage), "LotFrontage"] = dat$LotFrontage[1:indx] %>% median(., na.rm = TRUE)
+
+dat = subset(dat, select = -GarageYrBlt)
+
+na.count(dat[1:indx,])
+
+na.count(dat[(indx+1):nrow(dat),])
+
+```
+
+1.  We get some additional visibility to the examples reporting `NA`; specifically we ascertain if the same examples are reporting `NA` under multiple features.
+
+```{r eda-2}
+dat[is.na(dat$MSZoning), c("Id", "Neighborhood", "MSZoning")]
+dat[is.na(dat$Utilities), c("Id", "Neighborhood", "Utilities")]
+dat[is.na(dat$Exterior1st), c("Id", "MSSubClass", "Exterior1st", "Exterior2nd")]
+dat[is.na(dat$BsmtFinSF1), c("Id", "MSSubClass", "BsmtQual", "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF")]
+dat[is.na(dat$BsmtFullBath), c("Id", "MSSubClass", "BsmtQual", "BsmtFullBath", "BsmtHalfBath")]
+dat[is.na(dat$KitchenQual), c("Id", "MSSubClass", "KitchenQual")]
+dat[is.na(dat$Functional), c("Id", "MSSubClass", "Functional")]
+dat[is.na(dat$GarageCars), c("Id", "GarageType", "GarageCars", "GarageArea")]
+dat[is.na(dat$SaleType), c("Id", "MSSubClass", "SaleType")]
+
+```
+
+1.  A single exampe 2152 reports `NA` for both `Exterior1st` and `Exterior2nd`. 
+2.  Example ids. 2121 and 2189 both report absence of a basement and hence we can impute `0` to all related features like `BsmtFinSF1`, `BsmtFinSF2`, `BsmtUnfSF`, `TotalBsmtSF`, `BsmtFullBath` and `BsmtHalfBath`.
+3.  A single example 2577 reports `NA` for both `GarageCars` and `GarageArea`.
+
+4.  We make an experience based assumption that features:
+    a.  `MSZoning` and `Utilities` depend on the `Neighborhood`,
+    b.  `Exterior1st`, `Exterior2nd`, `KitchenQual`, `Functional` and `SaleType` depend on the type of house (`MSSubClass`), and 
+    c.  `GarageCars` and `GarageArea` depend on typle of Garage (`GarageType`).
+5.  To validate this assumption, we look at the distribution of:
+    a.  `MSZoning` and `Utilities` for different `Neighborhood`
+    b.  `Exterior1st`, `Exterior2nd`, `KitchenQual`, `Functional` and `SaleType` for different `MSSubclass`, and
+    c.  `GarageCars` and `GarageArea` for different `GarageType`. 
+We look at these distributions only for the train subset examples.
+
+```{r eda-3}
+writeLines("The first table of each pair of tables show the overall distribution of a feature across all examples and the second one the distribution of the feature stratified by 'MSSubClass'\n")
+
+table(MSZoning = dat$MSZoning[1:indx], dnn = "MSZoning") %>% prop.table() %>% round(digits = 4)
+table(MSZoning = dat$MSZoning[1:indx], Neighborhood = dat$Neighborhood[1:indx]) %>% 
+    prop.table(margin = 2) %>% round(digits = 4)
+writeLines("\n")
+table(Utilities = dat$Utilities[1:indx], dnn = "Utilities") %>% prop.table() %>% round(digits = 4)
+table(Utilities = dat$Utilities[1:indx], Neighborhood = dat$Neighborhood[1:indx]) %>% 
+    prop.table(margin = 2) %>% round(digits = 4)
+writeLines("\n")
+table(Xterior1 = dat$Exterior1st[1:indx], dnn = "Exterior1st") %>% prop.table() %>% round(digits = 4)
+table(Xterior1 = dat$Exterior1st[1:indx], MSSubclass = dat$MSSubClass[1:indx]) %>% 
+    prop.table(margin = 2) %>% round(digits = 4)
+writeLines("\n")
+table(Xterior2 = dat$Exterior2nd[1:indx], dnn = "Exterior2nd") %>% prop.table() %>% round(digits = 4)
+table(Xterior2 = dat$Exterior2nd[1:indx], MSSubclass = dat$MSSubClass[1:indx]) %>% 
+    prop.table(margin = 2) %>% round(digits = 4)
+writeLines("\n")
+table(KitchenQual = dat$KitchenQual[1:indx], dnn = "KitchenQual") %>% prop.table() %>% round(digits = 4)
+table(KitchenQual = dat$KitchenQual[1:indx], MSSubclass = dat$MSSubClass[1:indx]) %>% 
+    prop.table(margin = 2) %>% round(digits = 4)
+writeLines("\n")
+table(Functional = dat$Functional[1:indx], dnn = "Functional") %>% prop.table() %>% round(digits = 4)
+table(Functional = dat$Functional[1:indx], MSSubclass = dat$MSSubClass[1:indx]) %>% 
+    prop.table(margin = 2) %>% round(digits = 4)
+writeLines("\n")
+table(SaleType = dat$SaleType[1:indx], dnn = "SaleType") %>% prop.table() %>% round(digits = 4)
+table(SaleType = dat$SaleType[1:indx], MSSubclass = dat$MSSubClass[1:indx]) %>% 
+    prop.table(margin = 2) %>% round(digits = 4)
+writeLines("\n")
+table(GarageCars = dat$GarageCars[1:indx], dnn = "GarageCars") %>% prop.table() %>% round(digits = 4)
+table(GarageCars = dat$GarageCars[1:indx], GarageType = dat$GarageType[1:indx]) %>% 
+    prop.table(margin = 2) %>% round(digits = 4)
+
+garage.plot.1 = dat[1:indx,] %>% filter(.$GarageType != "NoGrg") %>% 
+    ggplot(aes(x = GarageArea))+ geom_density()+ 
+    labs(title = "Overall Garage Area Distribution", x = "Area in sq.ft", y = "")
+garage.plot.2 = dat[1:indx,] %>% filter(.$GarageType != "NoGrg") %>% ggplot(aes(x = GarageArea))+ 
+    geom_density()+ facet_grid(GarageType~.)+ 
+    labs(title = "Area Distribution by Garage Type", x = "Area in sq.ft", y = "")
+grid.arrange(garage.plot.1, garage.plot.2, ncol = 2)
+
+```
+
+1.  The tables and the graphs above validate our assumption that features `Exterior1st`, `Exterior2nd`, `KitchenQual`, `Functional` and `SaleType` depend on the type of house (`MSSubClass`) and features `GarageCars` and `GarageArea` depend on typle of Garage (`GarageType`).
+    a.  We impute the mode values for `Exterior1st`, `Exterior2nd`, `KitchenQual`, `Functional` and `SaleType` of appropriate `MSSubClass` to the missing values and the mode and median values respectively for `GarageCars` and `GarageArea` of appropriate `GarageType`
+2.  Example ids. 2121 and 2189 both report absence of a basement and hence we can impute `0` to all related features like `BsmtFinSF1`, `BsmtFinSF2`, `BsmtUnfSF`, `TotalBsmtSF`, `BsmtFullBath` and `BsmtHalfBath`.
+3.  Finally, we reconfirm that there are no more missing values.
+
+```{r impute-data-2}
+#   Exterior1st
+x = dat$Exterior1st[dat$MSSubClass == 30] %>% table() %>% which.max() %>% names()
+dat$Exterior1st[2152] = x
+#   Exterior2nd
+x = dat$Exterior2nd[dat$MSSubClass == 30] %>% table() %>% which.max() %>% names()
+dat$Exterior2nd[2152] = x
+#   KitchenQual
+x = dat$KitchenQual[dat$MSSubClass == 50] %>% table() %>% which.max() %>% names()
+dat$KitchenQual[1556] = x
+#   GarageCars
+x = dat$GarageCars[dat$GarageType == "Detchd"] %>% median(na.rm = TRUE)
+dat$GarageCars[2577] = x
+#   GarageArea
+x = dat$GarageArea[dat$GarageType == "Detchd"] %>% median(na.rm = TRUE)
+dat$GarageArea[2577] = x
+
+```
+
+
+
+```{r eda-4}
+lm.fit = lm(SalePrice~.-Id, data = train)
+
+#   Hurdle for a high leverage datapoint
+    #   The formula (p+1)/n is corrected as the first column is the id col
+h.stat.hrdl = 10*ncol(train)/nrow(train)
+
+#   Hurdle for outlier point
+outlier.hrdl = 3
+
+res.df = data.frame(Id = train$Id, SalePrice = train$SalePrice, 
+                    StndRes = lm.fit$residuals/sd(lm.fit$residuals), 
+                    LvrgStat = hatvalues(lm.fit))
+
+xtrm.data = data.frame(Id = train$Id, 
+                       cndt = ifelse(res.df$StndRes > outlier.hrdl & res.df$LvrgStat >= h.stat.hrdl, "Both", 
+                                     ifelse(res.df$StndRes > outlier.hrdl, "Outlier", 
+                                            ifelse(res.df$LvrgStat >= h.stat.hrdl, "HiLeverage", "None"))))
+res.df$cndt = xtrm.data$cndt
+rm(xtrm.data)
+table(res.df$cndt)
+
+```
+
+There is 85 data point that is likely either an outlier or hi-leverage or both. We consider the impact on the quality of fit after excluding each one of them individually from the dataset to which the linear model is fitted.
+We first establish a baseline for cross-validated estimated test error for the penalised linear model using all data points. We then compare the improvement in this measure when each of these 82 data points are excluded individually and the penalised linear model is refitted.
+    We use the penalised linear model as there is a ready function to calculate cross-validated estimated test error. To *mimic* a non-penalised linear fit, we use extremely small values of lambda
+
+```{r eda-5}
+x = model.matrix(data = train, SalePrice~.)[,-(1:2)] #  forms the model matrix and then drops the first two                                                             columns
+y = train$SalePrice
+cndt = res.df[res.df$cndt != "None", "Id"]
+
+set.seed(1970)
+cv.mse.base = cv.glmnet(x, y, lambda = c(10^-10,0))$cvm[1]
+
+cv.mse.cndt = data.frame(Id = cndt, MSE = c(rep(0, length(cndt))))
+i=1
+#   This loop will take some time to complete
+for (c in cndt) { 
+    set.seed(1970) 
+    cv.mse.cndt[i,2] = cv.glmnet(x[-c,], y[-c], lambda = c(10^-10,0))$cvm[1] 
+    i = i+1
+}
+
+cv.mse.cndt = cbind.data.frame(cv.mse.cndt, ratio=cv.mse.cndt$MSE/cv.mse.base)
+
+#   We identify those candidate data points that reduce the MSE by 20% i.e. mean error ~10%
+xcld.data = cv.mse.cndt[cv.mse.cndt$ratio < 0.8,]
+xcld.data
+res.df[xcld.data$Id,]
+```
+
+We find that 2 data points, Id nos. 1171 and 1299, when excluded individually from the data used to model a linear fit, reduce the baseline model's mean squared error by over 20% (i.e. reduce the error by over 10.6%). Further we see that both these points are likely hi-leverage points which further validates the decision to exclude when building the model.
+
+We now investigate for homoscedacity of the response variables
+
+```{r eda-6}
+res.df %>% ggplot(aes(SalePrice, StndRes))+ geom_point()
+
+```
+
+As the Sale Price gets larger, the studentized residuals of the linear model also tend to get larger and this trend indicates potential heteroscedacity in the response variable. We attempt to eliminate this heteroscedacity by using the log values of the response variable in building the linear fit model.
+
+```{r eda-7}
+lm.fit = lm(log(SalePrice)~.-Id, data = train)
+res.df$StndRes = lm.fit$residuals
+res.df %>% ggplot(aes(log(SalePrice), StndRes))+ geom_point()
+
+```
+
+We see that the heteroscedacity in the response variable is now eliminated and therefore conclude that we should use the log value of the response variable in building a linear model.
+
+We are now ready to fit a regularised linear regression model to our training data. We will fit both lasso penalised and ridge penalised models.
+
+For both the ridge and the lasso models we get an estimate for the 10-fold cross-validated test error using the training data and then choose the model that offers a lower estimated test error.
+
+We eliminate the two hi-leverage datapoints identified earlier from our training set and rebuild the model matrix.
+
+```{r fit-1}
+train = train[!(train$Id %in% xcld.data$Id),]
+x = model.matrix(data = train, SalePrice~.)[,-(1:2)]
+y = train$SalePrice %>% log()
+
+set.seed(1970)
+cv.ridge = cv.glmnet(x, y, alpha = 0)
+set.seed(1970)
+cv.lasso = cv.glmnet(x, y, alpha = 1)
+
+print(c("The lowest estimated test error in percentage for a ridge fit is ", round((min(cv.ridge$cvm)*100), 2)))
+print(c("The lowest estimated test error in percentage for a lasso fit is ", round((min(cv.lasso$cvm)*100), 2)))
+
+```
+
+The ridge model gives a slightly lower estimated test error than the lasso model. Hence we pick the **ridge penalised model** as our model of choice. We will build the ridge model and make predictions for test data later.
+
++++++++++++++++++++++++++++++++
+
+We pre-process the test data to bring it to the same "shape" as the training data. To that end we run the first two pre-processing functions run earlier on the train data.
+
+We then ascertain the features in test data that report `NA`.
+
+```{r pre-proc-3}
+test = read.csv("../data/test.csv")
+test = subset(test, select = -GarageYrBlt)  #   Dropping unnecessary feature
+
+
+test = Pre.Proc.1(test)
+test = Pre.Proc.2(test)
+
+na.count(test)
+
+```
+
+For features of type `<fct>` that do not have a meaningful `NA` level (per the data description) we impute the mode value of the respective feature from the train data. 
+
+For features of type `<int>`, we ascertain the distribution of the feature values.
+
+```{r impute-missing-data-2}
+test[is.na(test$MSZoning), "MSZoning"] = table(train$MSZoning) %>% which.max() %>% names(.)
+test[is.na(test$Utilities), "Utilities"] = table(train$Utilities) %>% which.max() %>% names(.)
+test[is.na(test$Exterior1st), "Exterior1st"] = table(train$Exterior1st) %>% which.max() %>% names(.)
+test[is.na(test$Exterior2nd), "Exterior2nd"] = table(train$Exterior2nd) %>% which.max() %>% names(.)
+test[is.na(test$MasVnrType), "MasVnrType"] = table(train$MasVnrType) %>% which.max() %>% names(.)
+test[is.na(test$KitchenQual), "KitchenQual"] = table(train$KitchenQual) %>% which.max() %>% names(.)
+test[is.na(test$Functional), "Functional"] = table(train$Functional) %>% which.max() %>% names(.)
+test[is.na(test$SaleType), "SaleType"] = table(train$SaleType) %>% which.max() %>% names(.)
+
+hist(test$MasVnrArea); hist(test$BsmtFinSF1); hist(test$BsmtFinSF2); hist(test$BsmtUnfSF); 
+hist(test$TotalBsmtSF); hist(test$BsmtFullBath); hist(test$BsmtHalfBath); hist(test$GarageCars); 
+hist(test$GarageArea); hist(test$LotFrontage)
+
+```
+
+For all features, the distribution is more or less skewed to the left and we impute the respective *feature median values from the train data* to `NA`. 
+
+```{r impute-missing-data-3}
+test[is.na(test$MasVnrArea), "MasVnrArea"] = median(train$MasVnrArea)
+test[is.na(test$BsmtFinSF1), "BsmtFinSF1"] = median(train$BsmtFinSF1)
+test[is.na(test$BsmtFinSF2), "BsmtFinSF2"] = median(train$BsmtFinSF2)
+test[is.na(test$BsmtUnfSF), "BsmtUnfSF"] = median(train$BsmtUnfSF)
+test[is.na(test$TotalBsmtSF), "TotalBsmtSF"] = median(train$TotalBsmtSF)
+test[is.na(test$BsmtFullBath), "BsmtFullBath"] = median(train$BsmtFullBath)
+test[is.na(test$BsmtHalfBath), "BsmtHalfBath"] = median(train$BsmtHalfBath)
+test[is.na(test$GarageCars), "GarageCars"] = median(train$GarageCars)
+test[is.na(test$LotFrontage), "LotFrontage"] = median(train$LotFrontage)
+test[is.na(test$GarageArea), "GarageArea"] = median(train$GarageArea)
+
+na.count(test)
+
+saveRDS(test, "../RDA/test.RDS")     #   Saving a baseline
+
+```
+
+We use the ridge penalised regression model to make predictions about the test set. However to ensure that both test and train data have the same structure, which is important while building a regularised regression model and make predictions from it, we will combine the training and test data, build a ridge model using the training records and then make predictions about the test records.
+
+```{r predict}
+test = cbind(test, SalePrice = mean(train$SalePrice))
+dat = rbind(train, test)
+rownames(dat) = 1:nrow(dat)
+indx = 1:nrow(train)
+
+x = model.matrix(data = dat, SalePrice~.)[,-(1:2)]
+y = dat$SalePrice %>% log()
+
+#   Fit a ridge penalised model to the training data by first identifying the best value of lambda
+set.seed(1970)
+
+ridge.fit = glmnet(x[indx,], y[indx], alpha = 0)
+cv.ridge = cv.glmnet(x[indx,], y[indx], alpha = 0)
+bestlambda = cv.ridge$lambda.min
+
+test.pred = predict(ridge.fit, s = bestlambda, newx = x[-indx,], type = "response")
+
+test.pred = test.pred %>% exp()
+
+out = cbind(test$Id, test.pred)
+colnames(out) = c("Id", "SalePrice")
+
+write.csv(out, file = "../data/out.csv", quote = FALSE, row.names = FALSE)
+```
+

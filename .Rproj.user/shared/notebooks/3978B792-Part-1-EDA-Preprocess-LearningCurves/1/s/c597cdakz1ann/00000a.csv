@@ -1,0 +1,6 @@
+"0","print(""Property Ids reporting NA for GarageYrBlt"")"
+"1","[1]"
+"1"," ""Property Ids reporting NA for GarageYrBlt"""
+"1","
+"
+"0","dat[1:indx,] %>% .[is.na(.$GarageYrBlt),c(""Id"", ""GarageType"", ""GarageYrBlt"")]"
