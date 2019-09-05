@@ -1,2 +1,0 @@
-"0","train = read.csv(""./data/train.csv"")"
-"0","head(train)"

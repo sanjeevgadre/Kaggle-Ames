@@ -1,0 +1,150 @@
+---
+title: "Ames Housing Prices: Part II - Data Transformation and Learning Curve"
+author: "Sanjeev Gadre"
+date: "June 28, 2019"
+output: 
+    md_document:
+        toc: TRUE
+---
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(warning = FALSE, echo = TRUE)
+```
+
+Loading the required libraries.
+
+```{r libraries, echo=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+library(gridExtra)
+
+```
+
+Loading required functions.
+
+```{r functions}
+na.count = function (dat){
+  dat %>% apply(., 2, is.na) %>% apply(.,2,sum) %>% .[.!=0]
+}
+
+```
+
+### Getting the Data
+
+1.  We start by getting the previously cleaned *train* subset.
+
+```{r get-data}
+train = readRDS("./RDA/train")
+
+```
+
+### Identifying *Extreme* examples
+
+1.  We identify *high-levarage* and *outlier* examples. To that end we use the following hurdles:
+    a.  An example is a high-leverage point if its **leverage statistic** is 10 times of more than the **average leverage** for all observations
+    b.  An example is an outlier if its **studentized residual** is greater than 3.
+2.  We fit a linear regression model to the data and use the model statistics to identify the extreme examples
+
+```{r xtrm-ex-1}
+fit = lm(SalePrice~., data = train)
+
+#   Hurdle for a high leverage datapoint 
+#   Avergae high-leverage for the data-set = ((number of features)+1)/(number of examples)
+h.stat.hrdl = 10*ncol(train)/nrow(train)
+
+#   Hurdle for outlier point
+outlier.hrdl = 3
+
+res.df = data.frame(SalePrice = train$SalePrice, 
+                    StndRes = fit$residuals/sd(fit$residuals), 
+                    LvrgStat = hatvalues(fit))
+rownames(res.df) = rownames(train)
+
+res.df = res.df %>% 
+    mutate(., cndt = ifelse(res.df$StndRes > outlier.hrdl & res.df$LvrgStat >= h.stat.hrdl, "Both", 
+                            ifelse(res.df$StndRes > outlier.hrdl, "Outlier", 
+                                   ifelse(res.df$LvrgStat >= h.stat.hrdl, "HiLeverage", "None"))))
+
+table(res.df$cndt)
+
+```
+
+*Observations*
+
+1.  There is 85 data point that is likely either an outlier or hi-leverage or both. 
+    a.  We consider the impact on the quality of fit after excluding each one of them individually from the dataset to which the linear model is fitted.
+2.  We first establish a baseline for cross-validated estimated test error for the linear model using all data points. We then compare the improvement in this measure when each of these 82 data points are excluded individually and the penalised linear model is refitted.
+3.  we use the `glmnet` package as there is a ready function to calculate cross-validated estimated test error.To *mimic* a non-penalised linear fit, we use extremely small values for the penalty factor lambda.
+4.  We identify those candidate data points that reduce the MSE by 20% i.e. mean error ~10%
+
+```{r xtrm-ex-2}
+x = model.matrix(data = train, SalePrice~.)[,-1]
+y = train$SalePrice
+cndt = rownames(res.df[(res.df$cndt == "Outlier" | res.df$cndt == "HiLeverage"),]) %>% as.integer()
+
+set.seed(1970)
+cv.mse.base = cv.glmnet(x, y, lambda = c(0,10^-10))$cvm[1]
+
+cv.mse.cndt = data.frame(Id = cndt, MSE = c(rep(0, length(cndt))))
+i=1
+#   This loop will take some time to complete
+for (c in cndt) { 
+    set.seed(1970) 
+    cv.mse.cndt[i,2] = cv.glmnet(x[-c,], y[-c], lambda = c(0,10^-10))$cvm[1] 
+    i = i+1
+}
+
+#   
+cv.mse.cndt = cv.mse.cndt %>% mutate(ratio = cv.mse.cndt$MSE/cv.mse.base)
+cv.mse.cndt = cv.mse.cndt %>% mutate(cndt = ifelse(ratio < 0.8, TRUE, FALSE))
+
+cv.mse.cndt[cv.mse.cndt$cndt == TRUE, c("Id", "ratio")]
+
+cndt = cv.mse.cndt[cv.mse.cndt$cndt == TRUE, "Id"]
+res.df[cndt,]
+
+```
+
+*Observations*
+
+1.  We find that 2 data points, Id nos. 1171 and 1299, when excluded individually from the data used to model a linear fit, reduce the baseline model's mean squared error by over 20% (i.e. reduce the error by over 10.6%). These two points should therefore be excluded from building any model using the train subset.
+2.  Further we see that both these points are likely hi-leverage points which further strengthens the decision to exclude them when building the model.
+
+### Investigating Likely Homoscedacity 
+
+```{r homoscedacity-1}
+res.df %>% ggplot(aes(SalePrice, StndRes))+ geom_point()+ 
+    labs(title = "Exploring Likely Homoscedacity", x = "Sale Price", y = "Studentized Residuals")
+
+```
+
+*Observations*
+
+1.  As the Sale Price gets larger, the studentized residuals of the linear model also tend to get larger and this trend indicates potential heteroscedacity in the response variable. 
+2.  We attempt to eliminate this heteroscedacity by using the log values of the response variable in building the linear fit model.
+
+```{r homoscedacity-1}
+fit = lm(log(SalePrice)~., data = train)
+res.df$StndRes = fit$residuals
+res.df %>% ggplot(aes(log(SalePrice), StndRes))+ geom_point()+ 
+    labs(title = "Exploring Likely Homoscedacity", x = "Log of Sale Price", y = "Studentized Residuals")
+
+
+```
+
+*Observations*
+
+1.  We see that the heteroscedacity in the response variable is now eliminated and therefore conclude that we should *use the log value of the response variable (Sale Price)* when building a model.
+2.  We eliminate the two hi-leverage datapoints identified earlier from our training set and save the train subset for future use.
+
+### Saving a Baseline
+
+```{r baseline}
+train = train[-cndt,]
+# saveRDS(train, "./RDA/train")
+
+```
+
+### Learning Curves
+

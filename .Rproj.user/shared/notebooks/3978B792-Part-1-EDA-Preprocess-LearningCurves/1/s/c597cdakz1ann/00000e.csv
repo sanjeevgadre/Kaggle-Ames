@@ -1,1 +1,0 @@
-"0","hist(dat$LotFrontage[1:indx], xlab = ""Area"", main = ""Histogram of LotArea"")"

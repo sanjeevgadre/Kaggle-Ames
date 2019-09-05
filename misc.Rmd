@@ -1,0 +1,202 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+
+```{r eda-4}
+lm.fit = lm(SalePrice~.-Id, data = train)
+
+#   Hurdle for a high leverage datapoint
+    #   The formula (p+1)/n is corrected as the first column is the id col
+h.stat.hrdl = 10*ncol(train)/nrow(train)
+
+#   Hurdle for outlier point
+outlier.hrdl = 3
+
+res.df = data.frame(Id = train$Id, SalePrice = train$SalePrice, 
+                    StndRes = lm.fit$residuals/sd(lm.fit$residuals), 
+                    LvrgStat = hatvalues(lm.fit))
+
+xtrm.data = data.frame(Id = train$Id, 
+                       cndt = ifelse(res.df$StndRes > outlier.hrdl & res.df$LvrgStat >= h.stat.hrdl, "Both", 
+                                     ifelse(res.df$StndRes > outlier.hrdl, "Outlier", 
+                                            ifelse(res.df$LvrgStat >= h.stat.hrdl, "HiLeverage", "None"))))
+res.df$cndt = xtrm.data$cndt
+rm(xtrm.data)
+table(res.df$cndt)
+
+```
+
+There is 85 data point that is likely either an outlier or hi-leverage or both. We consider the impact on the quality of fit after excluding each one of them individually from the dataset to which the linear model is fitted.
+We first establish a baseline for cross-validated estimated test error for the penalised linear model using all data points. We then compare the improvement in this measure when each of these 82 data points are excluded individually and the penalised linear model is refitted.
+    We use the penalised linear model as there is a ready function to calculate cross-validated estimated test error. To *mimic* a non-penalised linear fit, we use extremely small values of lambda
+
+```{r eda-5}
+x = model.matrix(data = train, SalePrice~.)[,-(1:2)] #  forms the model matrix and then drops the first two                                                             columns
+y = train$SalePrice
+cndt = res.df[res.df$cndt != "None", "Id"]
+
+set.seed(1970)
+cv.mse.base = cv.glmnet(x, y, lambda = c(10^-10,0))$cvm[1]
+
+cv.mse.cndt = data.frame(Id = cndt, MSE = c(rep(0, length(cndt))))
+i=1
+#   This loop will take some time to complete
+for (c in cndt) { 
+    set.seed(1970) 
+    cv.mse.cndt[i,2] = cv.glmnet(x[-c,], y[-c], lambda = c(10^-10,0))$cvm[1] 
+    i = i+1
+}
+
+cv.mse.cndt = cbind.data.frame(cv.mse.cndt, ratio=cv.mse.cndt$MSE/cv.mse.base)
+
+#   We identify those candidate data points that reduce the MSE by 20% i.e. mean error ~10%
+xcld.data = cv.mse.cndt[cv.mse.cndt$ratio < 0.8,]
+xcld.data
+res.df[xcld.data$Id,]
+```
+
+We find that 2 data points, Id nos. 1171 and 1299, when excluded individually from the data used to model a linear fit, reduce the baseline model's mean squared error by over 20% (i.e. reduce the error by over 10.6%). Further we see that both these points are likely hi-leverage points which further validates the decision to exclude when building the model.
+
+We now investigate for homoscedacity of the response variables
+
+```{r eda-6}
+res.df %>% ggplot(aes(SalePrice, StndRes))+ geom_point()
+
+```
+
+As the Sale Price gets larger, the studentized residuals of the linear model also tend to get larger and this trend indicates potential heteroscedacity in the response variable. We attempt to eliminate this heteroscedacity by using the log values of the response variable in building the linear fit model.
+
+```{r eda-7}
+lm.fit = lm(log(SalePrice)~.-Id, data = train)
+res.df$StndRes = lm.fit$residuals
+res.df %>% ggplot(aes(log(SalePrice), StndRes))+ geom_point()
+
+```
+
+We see that the heteroscedacity in the response variable is now eliminated and therefore conclude that we should use the log value of the response variable in building a linear model.
+
+We are now ready to fit a regularised linear regression model to our training data. We will fit both lasso penalised and ridge penalised models.
+
+For both the ridge and the lasso models we get an estimate for the 10-fold cross-validated test error using the training data and then choose the model that offers a lower estimated test error.
+
+We eliminate the two hi-leverage datapoints identified earlier from our training set and rebuild the model matrix.
+
+```{r fit-1}
+train = train[!(train$Id %in% xcld.data$Id),]
+x = model.matrix(data = train, SalePrice~.)[,-(1:2)]
+y = train$SalePrice %>% log()
+
+set.seed(1970)
+cv.ridge = cv.glmnet(x, y, alpha = 0)
+set.seed(1970)
+cv.lasso = cv.glmnet(x, y, alpha = 1)
+
+print(c("The lowest estimated test error in percentage for a ridge fit is ", round((min(cv.ridge$cvm)*100), 2)))
+print(c("The lowest estimated test error in percentage for a lasso fit is ", round((min(cv.lasso$cvm)*100), 2)))
+
+```
+
+The ridge model gives a slightly lower estimated test error than the lasso model. Hence we pick the **ridge penalised model** as our model of choice. We will build the ridge model and make predictions for test data later.
+
++++++++++++++++++++++++++++++++
+
+We pre-process the test data to bring it to the same "shape" as the training data. To that end we run the first two pre-processing functions run earlier on the train data.
+
+We then ascertain the features in test data that report `NA`.
+
+```{r pre-proc-3}
+test = read.csv("../data/test.csv")
+test = subset(test, select = -GarageYrBlt)  #   Dropping unnecessary feature
+
+
+test = Pre.Proc.1(test)
+test = Pre.Proc.2(test)
+
+na.count(test)
+
+```
+
+For features of type `<fct>` that do not have a meaningful `NA` level (per the data description) we impute the mode value of the respective feature from the train data. 
+
+For features of type `<int>`, we ascertain the distribution of the feature values.
+
+```{r impute-missing-data-2}
+test[is.na(test$MSZoning), "MSZoning"] = table(train$MSZoning) %>% which.max() %>% names(.)
+test[is.na(test$Utilities), "Utilities"] = table(train$Utilities) %>% which.max() %>% names(.)
+test[is.na(test$Exterior1st), "Exterior1st"] = table(train$Exterior1st) %>% which.max() %>% names(.)
+test[is.na(test$Exterior2nd), "Exterior2nd"] = table(train$Exterior2nd) %>% which.max() %>% names(.)
+test[is.na(test$MasVnrType), "MasVnrType"] = table(train$MasVnrType) %>% which.max() %>% names(.)
+test[is.na(test$KitchenQual), "KitchenQual"] = table(train$KitchenQual) %>% which.max() %>% names(.)
+test[is.na(test$Functional), "Functional"] = table(train$Functional) %>% which.max() %>% names(.)
+test[is.na(test$SaleType), "SaleType"] = table(train$SaleType) %>% which.max() %>% names(.)
+
+hist(test$MasVnrArea); hist(test$BsmtFinSF1); hist(test$BsmtFinSF2); hist(test$BsmtUnfSF); 
+hist(test$TotalBsmtSF); hist(test$BsmtFullBath); hist(test$BsmtHalfBath); hist(test$GarageCars); 
+hist(test$GarageArea); hist(test$LotFrontage)
+
+```
+
+For all features, the distribution is more or less skewed to the left and we impute the respective *feature median values from the train data* to `NA`. 
+
+```{r impute-missing-data-3}
+test[is.na(test$MasVnrArea), "MasVnrArea"] = median(train$MasVnrArea)
+test[is.na(test$BsmtFinSF1), "BsmtFinSF1"] = median(train$BsmtFinSF1)
+test[is.na(test$BsmtFinSF2), "BsmtFinSF2"] = median(train$BsmtFinSF2)
+test[is.na(test$BsmtUnfSF), "BsmtUnfSF"] = median(train$BsmtUnfSF)
+test[is.na(test$TotalBsmtSF), "TotalBsmtSF"] = median(train$TotalBsmtSF)
+test[is.na(test$BsmtFullBath), "BsmtFullBath"] = median(train$BsmtFullBath)
+test[is.na(test$BsmtHalfBath), "BsmtHalfBath"] = median(train$BsmtHalfBath)
+test[is.na(test$GarageCars), "GarageCars"] = median(train$GarageCars)
+test[is.na(test$LotFrontage), "LotFrontage"] = median(train$LotFrontage)
+test[is.na(test$GarageArea), "GarageArea"] = median(train$GarageArea)
+
+na.count(test)
+
+saveRDS(test, "../RDA/test.RDS")     #   Saving a baseline
+
+```
+
+We use the ridge penalised regression model to make predictions about the test set. However to ensure that both test and train data have the same structure, which is important while building a regularised regression model and make predictions from it, we will combine the training and test data, build a ridge model using the training records and then make predictions about the test records.
+
+```{r predict}
+test = cbind(test, SalePrice = mean(train$SalePrice))
+dat = rbind(train, test)
+rownames(dat) = 1:nrow(dat)
+indx = 1:nrow(train)
+
+x = model.matrix(data = dat, SalePrice~.)[,-(1:2)]
+y = dat$SalePrice %>% log()
+
+#   Fit a ridge penalised model to the training data by first identifying the best value of lambda
+set.seed(1970)
+
+ridge.fit = glmnet(x[indx,], y[indx], alpha = 0)
+cv.ridge = cv.glmnet(x[indx,], y[indx], alpha = 0)
+bestlambda = cv.ridge$lambda.min
+
+test.pred = predict(ridge.fit, s = bestlambda, newx = x[-indx,], type = "response")
+
+test.pred = test.pred %>% exp()
+
+out = cbind(test$Id, test.pred)
+colnames(out) = c("Id", "SalePrice")
+
+write.csv(out, file = "../data/out.csv", quote = FALSE, row.names = FALSE)
+```
+

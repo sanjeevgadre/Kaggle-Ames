@@ -1,3 +1,0 @@
-"0","na.count = function (dat){"
-"0","  dat %>% apply(., 2, is.na) %>% apply(.,2,sum) %>% .[.!=0]"
-"0","}"
