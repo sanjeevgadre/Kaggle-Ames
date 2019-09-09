@@ -124,7 +124,7 @@ res.df %>% ggplot(aes(SalePrice, StndRes))+ geom_point()+
 1.  As the Sale Price gets larger, the studentized residuals of the linear model also tend to get larger and this trend indicates potential heteroscedacity in the response variable. 
 2.  We attempt to eliminate this heteroscedacity by using the log values of the response variable in building the linear fit model.
 
-```{r homoscedacity-1}
+```{r homoscedacity-2}
 fit = lm(log(SalePrice)~., data = train)
 res.df$StndRes = fit$residuals
 res.df %>% ggplot(aes(log(SalePrice), StndRes))+ geom_point()+ 
@@ -142,9 +142,68 @@ res.df %>% ggplot(aes(log(SalePrice), StndRes))+ geom_point()+
 
 ```{r baseline}
 train = train[-cndt,]
-# saveRDS(train, "./RDA/train")
+saveRDS(train, "./RDA/train")
 
 ```
 
 ### Learning Curves
 
+Before proceeding further with feature engineering, it would be worthwhile to draw some *Learning Curves* to determine if a basic logistical regression model suffers from high bias or high variance. This will inform our feature engineering better.
+
+```{r learning-curves}
+#   We divide the training data into a training set and a validation set in the ratio of 70:30. We shuffle the train subset 5 times to improve our estimates for the learning curve
+lc.steps = 25
+err.train = rep(0, lc.steps); err.val = err.train
+
+for (k in 1:5) {
+    set.seed(k)
+    indx = sample(nrow(train), 0.7*nrow(train), replace = FALSE)
+    lc.step.size = length(indx)/lc.steps
+    lc.set.size = seq(lc.step.size, length(indx), length.out = lc.steps) %>% round(digits = 0)
+    
+    #   Because we are using small subsets of the train data, it is likely that for certain factor variables all levels may not be represented in the subset. This causes error in the lm() function and we therefore need to use the lower-level lm.fit() function which requires that the independent variables be provided in a model matrix format
+    x = model.matrix(SalePrice~., data = train)
+    y = train$SalePrice %>% log()
+    
+    for (i in 1:lc.steps) {
+        x.subset = x[indx[1:lc.set.size[i]],]; y.subset = y[indx[1:lc.set.size[i]]]
+        fit = lm.fit(x.subset, y.subset)
+        err.train[i] = err.train[i] + sqrt(mean(fit$residuals^2))
+        
+        fit.coeff = fit$coefficients
+        fit.coeff = ifelse(is.na(fit.coeff), 0, fit.coeff)
+        
+        y.val = y[-indx]
+        y.val.hat = x[-indx,]%*%fit.coeff %>% as.numeric()
+        err.val[i] = err.val[i] + sqrt(mean((y.val.hat - y.val)^2))
+    }
+}
+
+err.train = err.train/5; err.val = err.val/5
+err.df = cbind(Size = lc.set.size, Train = err.train, Val = err.val, err.ratio = err.train/err.val) %>%
+    as.data.frame()
+
+lc.plot.1 = err.df %>% ggplot(aes(x = Size))+ 
+    geom_line(aes(y = Train, color = "Train.Set.Error"), na.rm = TRUE)+ 
+    geom_line(aes(y = Val, color = "CrossVal.Set.Error"), na.rm = TRUE)+ 
+    labs(title = "Learning Curves", x = "Train Set Sample Size", y = "RMSE")+
+    scale_colour_manual(name="Key", values=c(Train.Set.Error ="red", CrossVal.Set.Error ="blue"))+ 
+    ylim(0, 0.5)+ theme(legend.position = "bottom")
+
+lc.plot.2 = err.df %>% ggplot(aes(x = Size, y = err.ratio))+ geom_line(na.rm = TRUE)+
+    labs(title = "Learning Curves", x = "Train Set Sample Size", y = "Ratio of Train Error to Cval Error")+
+    ylim(0,1)
+
+grid.arrange(lc.plot.1, lc.plot.2, ncol = 2)
+
+```
+
+*Observation*
+
+1.  The train set error and c-val set error curves are trending closer to each other but the gap is narrowing rather slowly as the size of the train subest incrases. This is even more apparent in the graph on the right. This indicates that a linear regression fit is likely to suffer from high variance.
+2.  We have two options - either increase the number of train examples or reduce the dimensions of the train data-set. Clearly the former is not an option and so we propose to use learning algorithms that reduce the dimensionality of the train subset.
+3.  We propose to use the following learning algorithms
+    a.  Ridge-penalised linear regression
+    b.  Lasso-penalised linear regression
+    c.  Linear regression using prinicipal components
+    d.  Linear regression using partial least square
