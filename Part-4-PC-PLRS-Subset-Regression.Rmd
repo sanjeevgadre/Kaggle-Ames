@@ -19,6 +19,7 @@ library(ggplot2)
 library(glmnet)
 library(gridExtra)
 library(pls)
+library(leaps)
 
 ```
 
@@ -58,49 +59,114 @@ train = readRDS("./RDA/train")
 
 ```{r PCR}
 n = nrow(train)
-p = ncol(train)-1
 x = model.matrix(SalePrice~., data = train)
 y = train$SalePrice %>% log()
 
-no.of.folds = 5
+no.of.folds = 10
+set.seed(1970)
 indx = sample(1:no.of.folds, n, replace = TRUE)
-est.val.err = rep(0, p)
+est.val.err = rep(0, ncol(x))
 for (i in 1:no.of.folds) {
-    fit = svdpc.fit(x[indx != i,], y[indx != i], center = TRUE, stripped = TRUE, ncomp = p)
+    fit = svdpc.fit(x[indx != i,], y[indx != i], ncomp = ncol(x), center = TRUE, scale = TRUE, stripped = TRUE)
     
-    fit.coeff = array(fit$coefficients[,1,], dim = c(ncol(x), p))
+    fit.coeff = array(fit$coefficients[,1,], dim = c(ncol(x), ncol(x)))
     
     y.val.hat = x[indx == i,]%*%fit.coeff
     val.err = (y.val.hat - y[indx == i])^2 %>% apply(., 2, mean)
     est.val.err = est.val.err + val.err
 }
 
-err.val = err.val/no.of.folds
+est.val.err = est.val.err/no.of.folds
 
-z = err.val %>% which.min()
+z = est.val.err %>% which.min()
 
 est.test.err = 0
 for (k in 1:5) {
     set.seed(k)
     indx = sample(1:n, 0.7*n)
     
-    fit = svdpc.fit(x[indx,], y[indx], ncomp = z, center = TRUE, stripped = TRUE)
+    fit = svdpc.fit(x[indx,], y[indx], ncomp = z, center = TRUE, scale = TRUE, stripped = TRUE)
     
     fit.coeff = fit$coefficients[, 1, z]
     
-    y.val.hat = x[-indx,]%*%fit.coeff
-    err.test = (y.val.hat - y[-indx])^2 %>% mean()
+    y.val.hat = x[-indx,]%*%fit.coeff %>% as.numeric()
+    test.err = (y.val.hat - y[-indx])^2 %>% mean()
     
-    est.test.err = est.test.err + err.test
-     
+    est.test.err = est.test.err + test.err
 }
-#
+
 est.test.err = round(est.test.err/5, digits = 4)
 
 print(paste("The estimated mean squared test error for a principal component regression model =", est.test.err))
 
 ```
 
+### Partial Least Square Regression
 
-### Ridge Penalised Linear Regression
+```{r pls}
+n = nrow(train)
+x = model.matrix(SalePrice~., data = train)
+y = train$SalePrice %>% log()
+
+no.of.folds = 10
+set.seed(1970)
+indx = sample(1:no.of.folds, n, replace = TRUE)
+est.val.err = rep(0, ncol(x))
+for (i in 1:no.of.folds) {
+    fit = oscorespls.fit(x[indx != i,], y[indx != i], ncomp = ncol(x), center = TRUE, stripped = TRUE)
+
+    fit.coeff = array(fit$coefficients[,1,], dim = c(ncol(x), ncol(x)))
+
+    y.val.hat = x[indx == i,]%*%fit.coeff
+    val.err = (y.val.hat - y[indx == i])^2 %>% apply(., 2, mean)
+    est.val.err = est.val.err + val.err
+}
+
+est.val.err = est.val.err/no.of.folds
+
+z = est.val.err %>% which.min()
+
+est.test.err = 0
+for (k in 1:5) {
+    set.seed(k)
+    indx = sample(1:n, 0.7*n)
+    
+    fit = oscorespls.fit(x[indx,], y[indx], ncomp = z, center = TRUE, stripped = TRUE)
+    
+    fit.coeff = fit$coefficients[, 1, z]
+    
+    y.val.hat = x[-indx,]%*%fit.coeff %>% as.numeric()
+    test.err = (y.val.hat - y[-indx])^2 %>% mean()
+    
+    est.test.err = est.test.err + test.err
+}
+
+est.test.err = round(est.test.err/5, digits = 4)
+
+print(paste("The estimated mean squared test error for a partial least square regression model =", est.test.err))
+```
+
+### Best Subset Selection
+
+```{r regsubsets}
+set.seed(1970)
+indx = sample(1:no.of.folds, n, replace = TRUE)
+
+for (i in 1:no.of.folds) {
+    fit = regsubsets(log(SalePrice)~., data = train[indx != i, ], nvmax = p, really.big = TRUE)
+    
+    
+    
+    
+    
+    fit = regs(x[indx != i,], y[indx != i], ncomp = ncol(x), center = TRUE, stripped = TRUE)
+
+    fit.coeff = array(fit$coefficients[,1,], dim = c(ncol(x), ncol(x)))
+
+    y.val.hat = x[indx == i,]%*%fit.coeff
+    val.err = (y.val.hat - y[indx == i])^2 %>% apply(., 2, mean)
+    est.val.err = est.val.err + val.err
+}
+
+```
 
