@@ -1,5 +1,5 @@
 ---
-title: "Ames Housing Prices: Part IV - PC, PLS and Subset Regression "
+title: "Ames Housing Prices: Part IV - PC, PLS and Best Subset Regression "
 author: "Sanjeev Gadre"
 date: "June 28, 2019"
 output: 
@@ -8,7 +8,7 @@ output:
 ---
 
 ```{r setup, include=FALSE, message=FALSE}
-knitr::opts_chunk$set(warning = FALSE, echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, echo = TRUE) #message = FALSE
 ```
 
 Loading the required libraries.
@@ -23,15 +23,6 @@ library(leaps)
 
 ```
 
-Loading required functions.
-
-```{r functions}
-na.count = function (dat){
-  dat %>% apply(., 2, is.na) %>% apply(.,2,sum) %>% .[.!=0]
-}
-
-```
-
 ### Getting the Data
 
 1.  We start by getting the previously cleaned *train* subset.
@@ -39,6 +30,9 @@ na.count = function (dat){
 ```{r get-data}
 train = readRDS("./RDA/train")
 
+n = nrow(train)
+p = ncol(train)-1
+y = train$SalePrice %>% log()
 ```
 
 ### Introduction
@@ -48,48 +42,27 @@ train = readRDS("./RDA/train")
     b.  Partial Least Square Regression
     c.  Regresion using the best subset.
 2.  We will use the *train-validate-test* strategy to fit an optimal model to the *train* data-set as well as estimate the likely test error.
-3.  The train data-set will be divided into 2 subsets - **train** and **test** - in the ratio 70:30.
-4.  The *train* subset will be used to build the model. The `pls` library has an inbuilt cross-validation feature that allows for selection of optimal number of principal components and partial least square directions.
-5.  The *test subset* will be used to estimate the likely test error.
+
 
 ### Principal Component Regression
 
-1.  We do a 5-fold cross validation using the *train* subset to determine the optimal number of principal components to use when fitting a principal component regression model.
-2.  We then use the 
+1.  We use the `pls` library's inbuilt cross-validation feature for selection of optimal number of principal components.
+2.  The train data-set will be divided into 2 subsets - **train** and **test** - in the ratio 70:30. The *test subset* will be used to estimate the likely test error for a model buit using the optimal number of principal components.
 
-```{r PCR}
-n = nrow(train)
-x = model.matrix(SalePrice~., data = train)
-y = train$SalePrice %>% log()
-
-no.of.folds = 10
+```{r pcr}
 set.seed(1970)
-indx = sample(1:no.of.folds, n, replace = TRUE)
-est.val.err = rep(0, ncol(x))
-for (i in 1:no.of.folds) {
-    fit = svdpc.fit(x[indx != i,], y[indx != i], ncomp = ncol(x), center = TRUE, scale = TRUE, stripped = TRUE)
-    
-    fit.coeff = array(fit$coefficients[,1,], dim = c(ncol(x), ncol(x)))
-    
-    y.val.hat = x[indx == i,]%*%fit.coeff
-    val.err = (y.val.hat - y[indx == i])^2 %>% apply(., 2, mean)
-    est.val.err = est.val.err + val.err
-}
+fit = pcr(log(SalePrice)~., data = train, ncomp = p, center = TRUE, validation = "CV")
 
-est.val.err = est.val.err/no.of.folds
-
-z = est.val.err %>% which.min()
+opt.z = fit$validation$PRESS %>% which.min()
 
 est.test.err = 0
 for (k in 1:5) {
     set.seed(k)
     indx = sample(1:n, 0.7*n)
     
-    fit = svdpc.fit(x[indx,], y[indx], ncomp = z, center = TRUE, scale = TRUE, stripped = TRUE)
+    fit = pcr(log(SalePrice)~., data = train[indx, ], ncomp = opt.z)
     
-    fit.coeff = fit$coefficients[, 1, z]
-    
-    y.val.hat = x[-indx,]%*%fit.coeff %>% as.numeric()
+    y.val.hat = predict(fit, newdata = train[-indx,], ncomp = opt.z)
     test.err = (y.val.hat - y[-indx])^2 %>% mean()
     
     est.test.err = est.test.err + test.err
@@ -98,44 +71,27 @@ for (k in 1:5) {
 est.test.err = round(est.test.err/5, digits = 4)
 
 print(paste("The estimated mean squared test error for a principal component regression model =", est.test.err))
-
 ```
 
 ### Partial Least Square Regression
 
+1.  We use the `pls` library's inbuilt cross-validation feature for selection of optimal number of partial least square directions.
+2.  The train data-set will be divided into 2 subsets - **train** and **test** - in the ratio 70:30. The *test subset* will be used to estimate the likely test error for a model buit using the optimal number of partial least square directions.
+
 ```{r pls}
-n = nrow(train)
-x = model.matrix(SalePrice~., data = train)
-y = train$SalePrice %>% log()
-
-no.of.folds = 10
 set.seed(1970)
-indx = sample(1:no.of.folds, n, replace = TRUE)
-est.val.err = rep(0, ncol(x))
-for (i in 1:no.of.folds) {
-    fit = oscorespls.fit(x[indx != i,], y[indx != i], ncomp = ncol(x), center = TRUE, stripped = TRUE)
+fit = plsr(log(SalePrice)~., data = train, ncomp = p, center = TRUE, validation = "CV")
 
-    fit.coeff = array(fit$coefficients[,1,], dim = c(ncol(x), ncol(x)))
-
-    y.val.hat = x[indx == i,]%*%fit.coeff
-    val.err = (y.val.hat - y[indx == i])^2 %>% apply(., 2, mean)
-    est.val.err = est.val.err + val.err
-}
-
-est.val.err = est.val.err/no.of.folds
-
-z = est.val.err %>% which.min()
+opt.z = fit$validation$PRESS %>% which.min()
 
 est.test.err = 0
 for (k in 1:5) {
     set.seed(k)
     indx = sample(1:n, 0.7*n)
     
-    fit = oscorespls.fit(x[indx,], y[indx], ncomp = z, center = TRUE, stripped = TRUE)
+    fit = plsr(log(SalePrice)~., data = train[indx, ], ncomp = opt.z)
     
-    fit.coeff = fit$coefficients[, 1, z]
-    
-    y.val.hat = x[-indx,]%*%fit.coeff %>% as.numeric()
+    y.val.hat = predict(fit, newdata = train[-indx,], ncomp = opt.z)
     test.err = (y.val.hat - y[-indx])^2 %>% mean()
     
     est.test.err = est.test.err + test.err
@@ -146,27 +102,108 @@ est.test.err = round(est.test.err/5, digits = 4)
 print(paste("The estimated mean squared test error for a partial least square regression model =", est.test.err))
 ```
 
-### Best Subset Selection
+### Best Subset Selection - Forward Selection
 
-```{r regsubsets}
+1.  We perform a 10-fold cross validation to select the optimal size of the subset of features.
+2.  The train data-set will be divided into 2 subsets - **train** and **test** - in the ratio 70:30. The *test subset* will be used to estimate the likely test error for a model buit using the optimal size of subset of features.
+
+```{r regsubsets-forward}
+no.of.folds = 10
 set.seed(1970)
 indx = sample(1:no.of.folds, n, replace = TRUE)
 
+est.val.err = rep(0, p)
 for (i in 1:no.of.folds) {
-    fit = regsubsets(log(SalePrice)~., data = train[indx != i, ], nvmax = p, really.big = TRUE)
+    fit = regsubsets(log(SalePrice)~., data = train[indx != i, ], nvmax = p, method = "forward")
     
+    test.mat = model.matrix(SalePrice~., data = train[indx == i,])
     
+    for (j in 1:p) {
+       coefj = coef(fit, id = j)
+       y.val.hat = test.mat[, names(coefj)]%*%coefj
+       val.err = (y.val.hat - y[indx == i])^2 %>% mean()
+       est.val.err[j] = est.val.err[j] + val.err 
+    }
     
-    
-    
-    fit = regs(x[indx != i,], y[indx != i], ncomp = ncol(x), center = TRUE, stripped = TRUE)
-
-    fit.coeff = array(fit$coefficients[,1,], dim = c(ncol(x), ncol(x)))
-
-    y.val.hat = x[indx == i,]%*%fit.coeff
-    val.err = (y.val.hat - y[indx == i])^2 %>% apply(., 2, mean)
-    est.val.err = est.val.err + val.err
 }
 
+est.val.err = est.val.err/no.of.folds
+
+opt.z = which.min(est.val.err)
+
+est.test.err = 0
+for (k in 1:5) {
+    set.seed(k)
+    indx = sample(1:n, 0.7*n)
+    
+    fit = regsubsets(log(SalePrice)~., data = train[indx, ], nvmax = opt.z, method = "forward")
+    coef.fit = coef(fit, id = opt.z)
+    test.mat = model.matrix(SalePrice~., data = train[-indx,])
+    
+    y.val.hat = test.mat[, names(coef.fit)]%*%coef.fit
+    test.err = (y.val.hat - y[-indx])^2 %>% mean()
+    
+    est.test.err = est.test.err + test.err
+}
+
+est.test.err = round(est.test.err/5, digits = 4)
+
+print(paste("The estimated mean squared test error for a best subset (forward) selection model =", est.test.err))
+
 ```
+
+### Best Subset Selection - Backward Selection
+
+1.  We use the same strategy as for the *Forward Selection* algorithm.
+
+```{r regsubsets-backward}
+no.of.folds = 10
+set.seed(1970)
+indx = sample(1:no.of.folds, n, replace = TRUE)
+
+est.val.err = rep(0, p)
+for (i in 1:no.of.folds) {
+    fit = regsubsets(log(SalePrice)~., data = train[indx != i, ], nvmax = p, method = "backward")
+    
+    test.mat = model.matrix(SalePrice~., data = train[indx == i,])
+    
+    for (j in 1:p) {
+       coefj = coef(fit, id = j)
+       y.val.hat = test.mat[, names(coefj)]%*%coefj
+       val.err = (y.val.hat - y[indx == i])^2 %>% mean()
+       est.val.err[j] = est.val.err[j] + val.err 
+    }
+    
+}
+
+est.val.err = est.val.err/no.of.folds
+
+opt.z = which.min(est.val.err)
+
+est.test.err = 0
+for (k in 1:5) {
+    set.seed(k)
+    indx = sample(1:n, 0.7*n)
+    
+    fit = regsubsets(log(SalePrice)~., data = train[indx, ], nvmax = opt.z, method = "backward")
+    coef.fit = coef(fit, id = opt.z)
+    test.mat = model.matrix(SalePrice~., data = train[-indx,])
+    
+    y.val.hat = test.mat[, names(coef.fit)]%*%coef.fit
+    test.err = (y.val.hat - y[-indx])^2 %>% mean()
+    
+    est.test.err = est.test.err + test.err
+}
+
+est.test.err = round(est.test.err/5, digits = 4)
+
+print(paste("The estimated mean squared test error for a best subset (backward) selection model =", est.test.err))
+
+```
+
+*Observations*
+1.  The Principal Component Regression model underperforms the penalised regression models.
+2.  The Partial Least Squares Regression models outperforms the penalised regression models; it currently is the best performing model.
+3.  The Best Subset Selection Regression model underperforms all the models tried so far.
+
 
