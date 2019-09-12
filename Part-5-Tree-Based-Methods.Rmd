@@ -47,8 +47,6 @@ y = train$SalePrice %>% log()
 2.  We iterate through different values of mumber of variables randomly sampled as candidates at each split allowing us to compare a random forest ensemble with a bagged tree ensemble in the same pass
 
 ```{r randomforest}
-timestamp()
-
 #   (From the help file) For large data sets, especially those with large number of variables, calling randomForest via the formula interface is not advised: There may be too much overhead in handling the formula.
 x = model.matrix(SalePrice~., data = train)
 
@@ -75,47 +73,12 @@ est.test.err = round(est.test.err, digits = 4)
 print(paste("The estimated mean squared test error for a random forest ensemble model =", est.test.err))
 print(paste("For the least mean squared test errror, the optimal number of trees grown is", bestforestsize,
             "and the optimal number of parameters (for the model matrix) sampled at a node is", bestparamsize))
-timestamp()
 
 ```
 
 *Observations*
 
 1.  In this particular instance, the random forest ensemble outperforms the bagged tree ensemble.
-
-
-```{r randomforest-1}
-timestamp()
-
-forest.size = c(100, 500, 2500)
-param.size = c(p/9, p/3, p) %>% round(digits = 0)
-
-est.test.err = (mean(y) - y)^2 %>% mean()
-bestforestsize = 500; bestparamsize = p/3
-for (t in forest.size) {
-    for (p in param.size) {
-        set.seed(p)
-        fit = randomForest(log(SalePrice)~., data = train, ntree = t, mtry = p, keep.forest = FALSE)
-        test.err = fit$mse %>% min()
-        
-        if (test.err < est.test.err) {
-            est.test.err = test.err
-            bestforestsize = fit$mse %>% which.min()
-            bestparamsize = p
-        }
-    }
-}
-
-est.test.err = round(est.test.err, digits = 4)
-
-print(paste("The estimated mean squared test error for a random forest ensemble model =", est.test.err))
-print(paste("For the least mean squared test errror, the optimal number of trees grown is", bestforestsize,
-            "and the optimal number of parameters (for the model matrix) sampled at a node is", bestparamsize))
-
-timestamp()
-
-```
-
 
 ### Boosted Tree Ensemble
 
@@ -124,8 +87,6 @@ timestamp()
 
 
 ```{r boosted-trees}
-timestamp()
-
 depth = 1:4
 alpha = c(1, 0.3, 0.1, 0.03, 0.01)
 
@@ -133,6 +94,7 @@ est.test.err = (mean(y) - y)^2 %>% mean()
 bestdepth = 1; bestalpha = 0.1
 for (d in depth) {
     for (a in alpha) {
+        set.seed(a)
         fit = gbm(log(SalePrice)~., data = train, distribution = "gaussian", n.trees = 2500, 
           interaction.depth = d, shrinkage = a, cv.folds = 10, keep.data = FALSE)
         
@@ -148,10 +110,9 @@ for (d in depth) {
 est.test.err = round(est.test.err, digits = 4)
 
 print(paste("The estimated mean squared test error for a boosted forest ensemble model =", est.test.err))
-print(paste("For the least mean squared test errror, the optimal interaction depth is", bestdepth,
+print(paste("For the model with lowest mean squared test errror, the optimal interaction depth is", bestdepth,
             "and the optimal learning rate is", bestalpha))
 
-timestamp()
 
 ```
 

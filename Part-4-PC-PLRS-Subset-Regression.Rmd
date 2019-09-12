@@ -46,60 +46,44 @@ y = train$SalePrice %>% log()
 
 ### Principal Component Regression
 
-1.  We use the `pls` library's inbuilt cross-validation feature for selection of optimal number of principal components.
-2.  The train data-set will be divided into 2 subsets - **train** and **test** - in the ratio 70:30. The *test subset* will be used to estimate the likely test error for a model buit using the optimal number of principal components.
+1.  We use the `pls` library's cross-validation function `crossval` for selection of optimal number of principal components and estimating the test error.
 
 ```{r pcr}
 set.seed(1970)
-fit = pcr(log(SalePrice)~., data = train, ncomp = p, center = TRUE, validation = "CV")
+fit = pcr(log(SalePrice)~., data = train, ncomp = p, center = TRUE, validation = "none", model = FALSE)
 
-opt.z = fit$validation$PRESS %>% which.min()
+set.seed(1970)
+cv.out = crossval(fit, segments = 10, segment.type = "random")
 
-est.test.err = 0
-for (k in 1:5) {
-    set.seed(k)
-    indx = sample(1:n, 0.7*n)
-    
-    fit = pcr(log(SalePrice)~., data = train[indx, ], ncomp = opt.z)
-    
-    y.val.hat = predict(fit, newdata = train[-indx,], ncomp = opt.z)
-    test.err = (y.val.hat - y[-indx])^2 %>% mean()
-    
-    est.test.err = est.test.err + test.err
-}
+opt.z = cv.out$validation$adj %>% which.min()
 
-est.test.err = round(est.test.err/5, digits = 4)
+est.test.err = cv.out$validation$adj %>% min() %>% round(digits = 4)
 
 print(paste("The estimated mean squared test error for a principal component regression model =", est.test.err))
+print(paste("For the model with lowest mean squared test errror, the optimal number principal components = ",
+            opt.z))
+
 ```
+
 
 ### Partial Least Square Regression
 
-1.  We use the `pls` library's inbuilt cross-validation feature for selection of optimal number of partial least square directions.
-2.  The train data-set will be divided into 2 subsets - **train** and **test** - in the ratio 70:30. The *test subset* will be used to estimate the likely test error for a model buit using the optimal number of partial least square directions.
+1.  We use the `pls` library's cross-validation function `crossval` for selection of optimal number of principal components and estimating the test error.
 
 ```{r pls}
 set.seed(1970)
-fit = plsr(log(SalePrice)~., data = train, ncomp = p, center = TRUE, validation = "CV")
+fit = plsr(log(SalePrice)~., data = train, ncomp = p, center = TRUE, validation = "none", model = FALSE)
 
-opt.z = fit$validation$PRESS %>% which.min()
+set.seed(1970)
+cv.out = crossval(fit, segments = 10, segment.type = "random")
 
-est.test.err = 0
-for (k in 1:5) {
-    set.seed(k)
-    indx = sample(1:n, 0.7*n)
-    
-    fit = plsr(log(SalePrice)~., data = train[indx, ], ncomp = opt.z)
-    
-    y.val.hat = predict(fit, newdata = train[-indx,], ncomp = opt.z)
-    test.err = (y.val.hat - y[-indx])^2 %>% mean()
-    
-    est.test.err = est.test.err + test.err
-}
+opt.z = cv.out$validation$adj %>% which.min()
 
-est.test.err = round(est.test.err/5, digits = 4)
+est.test.err = cv.out$validation$adj %>% min() %>% round(digits = 4)
 
-print(paste("The estimated mean squared test error for a partial least square regression model =", est.test.err))
+print(paste("The estimated mean squared test error for a principal component regression model =", est.test.err))
+print(paste("For the model with lowest mean squared test errror, the optimal number partial least square directions = ", opt.z))
+
 ```
 
 ### Best Subset Selection - Forward Selection
