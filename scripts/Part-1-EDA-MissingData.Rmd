@@ -8,7 +8,7 @@ output:
 ---
 
 ```{r setup, include=FALSE, message=FALSE}
-knitr::opts_chunk$set(warning = FALSE, echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, echo = FALSE)
 ```
 
 Loading the required libraries.
@@ -31,16 +31,12 @@ na.count = function (dat){
 
 ### Getting the Data
 
-1.  We start by getting a sense of the training data and its structure.
-2.  We add a column "SalePrice" to the test data and assign a default value of "1000".
-3.  Finally, we combide train and test data, for easier changes to the dataframe structure, imputing missing values and analysis.
+1.  We add a column `SalePrice` to the *test* dataset and assign a default value of "1000".
+2.  We combide *train* and *test* datasets, for easier changes to the dataframe structure, imputing missing values and analysis.
+3.  We start by getting a sense of the *train* dataset and its structure.
 
 ```{r get-data}
 train = read.csv("./data/train.csv")
-
-head(train)
-str(train)
-
 test = read.csv("./data/test.csv")
 test$SalePrice = 1000
 
@@ -48,21 +44,29 @@ dat = rbind(train, test)
 
 indx = nrow(train)
 
+print("Sample examples from the train dataset")
+head(train)
+print("Structure of the train dataset")
+str(train)
+
 ```
 
 ### Pre-Process - I
 
 1.  We change the data type for a few features to better align it with the type of feature data. Specifically, we convert  `MSSubClass`, `OverallQual`, `OverallCond` from `<int>` to `<fctr>`.
-2.  We identify the features in the train subset that report `NA` values
+2.  We identify the features in the *train* dataset that report `NA` values
 
 ```{r pre-proc-1}
 dat$MSSubClass = factor(dat$MSSubClass)
 dat$OverallCond = factor(dat$OverallCond)
 dat$OverallQual = factor(dat$OverallQual)
 
+print("Features in train dataset reporting NA values")
 na.count(dat[1:indx,])
 
 ```
+
+**Observations**
 
 Some features are *incorrectly* coded in that `NA` doesn't mean missing data but has a an alternate meaning. We
 convert `NA` to a more appropriate values for the following features:
@@ -75,9 +79,9 @@ convert `NA` to a more appropriate values for the following features:
 6.  When a house has *No Fence*, it is recorded under the column `Fence` as `NA` which is corrected to            `NoFence`.
 7.  When a house has *No Miscellaneous Features*, it is recorded under the column `MiscFeature` as `NA` which is corrected to `NoMisc`.
 
-We apply these changes to both train and test subsets.
+We apply these changes to both *train* and *test* datasets.
 
-8.  We identify the features in the train subset that are reporting `NA`.
+8.  We identify the features in the *train* dataset that are reporting `NA`.
 
 ```{r pre-proc-2}
 levels(dat$Alley) = c(levels(dat$Alley), "NoAccess")
@@ -122,33 +126,34 @@ dat[is.na(dat$Fence), "Fence"] = "NoFence"
 levels(dat$MiscFeature) = c(levels(dat$MiscFeature), "NoMisc")
 dat[is.na(dat$MiscFeature), "MiscFeature"] = "NoMisc"
 
+print("Features in train dataset reporting NA values")
 na.count(dat[1:indx,])
 
 ```
 
 ### Exploratory Data Analysis - I
 
-We get additional visibility to the features in the *train* subset reporting `NA` values
+We get additional visibility to the features in the *train* dataset reporting `NA` values
 
 ```{r eda-1, echo=FALSE}
 writeLines("Property Ids reporting NA for GarageYrBlt")
 dat[1:indx,] %>% .[is.na(.$GarageYrBlt),c("Id", "GarageType", "GarageYrBlt")]
 
-writeLines("\nDistribution of types of 'Elec. System' used")
+writeLines("Distribution of types of 'Elec. System' used")
 table(dat$Electrical[1:indx], dnn = "Elec. System Used") %>% prop.table() %>% round(digits = 4)
 
-writeLines("\nDistribution of types of 'Masonry Veneer' used")
+writeLines("Distribution of types of 'Masonry Veneer' used")
 table(dat$MasVnrType[1:indx], dnn = "Masonry Veneer Type") %>% prop.table() %>% round(digits = 4)
 
-writeLines("\nDistribution of 'Masonry Veneer Area'")
+writeLines("Distribution of 'Masonry Veneer Area'")
 hist(dat$MasVnrArea[1:indx], xlab = "Area", main = "Histogram of MasVnrArea")
 
-writeLines("\nDistribution of 'Lot Area' used\n")
+writeLines("Distribution of 'Lot Area' used\n")
 hist(dat$LotFrontage[1:indx], xlab = "Area", main = "Histogram of LotArea")
 
 ```
 
-*Observations:*
+**Observations:**
 
 1.  All 81 properties reporting `NA` for `GarageYrBlt` also report that they have no garage. 
 2.  The most common value of `Electrical` is `SBrkr` and for `MasVnrType` is `None`
@@ -156,15 +161,15 @@ hist(dat$LotFrontage[1:indx], xlab = "Area", main = "Histogram of LotArea")
 
 ### Pre-Process - II
 
-We use the insights above to impute missing values to both the train and test subset for the 5 features analysed above
+We use the insights above to impute missing values to both the *train* and *test* datasets for the 5 features analysed above
 
 1.  We make an experience-based assumption that a property's value is dependent on the presence or absence of a garage rather that the age of the garage. As such, we *drop* the feature `GarageYrBlt` as the information of the presence or absence of a garage is already captured in `GarageType`.
 2.  To the `NA` in `Electrical` and `MasVnrType` we impute the mode value of the respective feature based on the remaining train examples.
 3.  To the `NA` in `MasVnrArea` and `LotFrontage` we impute the median value of the respective feature based on the remaining train examples.
-4.  We verify that there indeed are no more missing values in the **train** subset.
-5.  Finally we identify the missing values in the **test** subset
+4.  We verify that there indeed are no more missing values in the *train* dataset.
+5.  Finally we identify the missing values in the *test* dataset.
 
-It is important to note that we *only* use the train examples to decide on the median and mode values to impute.
+It is important to note that we **only** use the *train* examples to decide on the median and mode values to impute.
 
 ```{r impute-data-1}
 dat[is.na(dat$Electrical), "Electrical"] = dat$Electrical[1:indx] %>% table() %>% which.max() %>% names()
@@ -174,21 +179,24 @@ dat[is.na(dat$LotFrontage), "LotFrontage"] = dat$LotFrontage[1:indx] %>% median(
 
 dat = subset(dat, select = -GarageYrBlt)
 
+print("Features in train dataset reporting NA values")
 na.count(dat[1:indx,])
 
+print("Features in test dataset reporting NA values")
 na.count(dat[(indx+1):nrow(dat),])
 
 ```
 
 ### Exploratory Data Analysis - II
 
-1.  We get some additional visibility to the examples in the test subset reporting `NA`; specifically we ascertain if there are examples reporting `NA` under multiple features.
+1.  We get some additional visibility to the examples in the *test* dataset reporting `NA`; specifically we ascertain if there are examples reporting `NA` under multiple features.
 
-```{r eda-2}
+```{r eda-2, echo=FALSE}
 dat[is.na(dat$MSZoning), c("Id", "Neighborhood", "MSZoning")]
 dat[is.na(dat$Utilities), c("Id", "Neighborhood", "Utilities")]
 dat[is.na(dat$Exterior1st), c("Id", "MSSubClass", "Exterior1st", "Exterior2nd")]
-dat[is.na(dat$BsmtFinSF1), c("Id", "MSSubClass", "BsmtQual", "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF")]
+dat[is.na(dat$BsmtFinSF1), c("Id", "MSSubClass", "BsmtQual", "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", 
+                             "TotalBsmtSF")]
 dat[is.na(dat$BsmtFullBath), c("Id", "MSSubClass", "BsmtQual", "BsmtFullBath", "BsmtHalfBath")]
 dat[is.na(dat$KitchenQual), c("Id", "MSSubClass", "KitchenQual")]
 dat[is.na(dat$Functional), c("Id", "MSSubClass", "Functional")]
@@ -197,13 +205,13 @@ dat[is.na(dat$SaleType), c("Id", "MSSubClass", "SaleType")]
 
 ```
 
-*Observations*
+**Observations**
 
 1.  A single exampe 2152 reports `NA` for both `Exterior1st` and `Exterior2nd`. 
 2.  Example ids. 2121 and 2189 both report absence of a basement and hence we can impute `0` to all related features like `BsmtFinSF1`, `BsmtFinSF2`, `BsmtUnfSF`, `TotalBsmtSF`, `BsmtFullBath` and `BsmtHalfBath`.
 3.  A single example 2577 reports `NA` for both `GarageCars` and `GarageArea`.
 
-*Insights*
+**Insights**
 
 1.  We make experience based hypotheses that features:
     a.  `MSZoning` and `Utilities` depend on the `Neighborhood`,
@@ -214,7 +222,7 @@ dat[is.na(dat$SaleType), c("Id", "MSSubClass", "SaleType")]
     b.  `Exterior1st`, `Exterior2nd`, `KitchenQual`, `Functional` and `SaleType` for different `MSSubclass`, and
     c.  `GarageCars` and `GarageArea` for different `GarageType`. 
 
-We look at these distributions only for the train subset examples.
+We look at these distributions only for the *train* examples.
 
 ```{r eda-3, echo=FALSE}
 writeLines("The first table of each pair of tables below show the overall distribution of a feature across all examples and the second one the distribution of the feature stratified by 'MSSubClass'\n")
@@ -261,6 +269,8 @@ grid.arrange(garage.plot.1, garage.plot.2, ncol = 2)
 
 ```
 
+**Observations**
+
 1.  The tables and the graphs above validate our hypotheses that, features - 
     a.  `MSZoning` and `Utilities` depend on `Neighborhood`
     b.  `Exterior1st`, `Exterior2nd`, `KitchenQual`, `Functional` and `SaleType` depend on the type of house (`MSSubClass`), and 
@@ -286,42 +296,51 @@ x = dat$Utilities[dat$Neighborhood == "IDOTRR"] %>% table() %>% which.max() %>% 
 dat$Utilities[1916] = x
 x = dat$Utilities[dat$Neighborhood == "Gilbert"] %>% table() %>% which.max() %>% names()
 dat$Utilities[1946] = x
+
 #   Exterior1st
 x = dat$Exterior1st[dat$MSSubClass == 30] %>% table() %>% which.max() %>% names()
 dat$Exterior1st[2152] = x
+
 #   Exterior2nd
 x = dat$Exterior2nd[dat$MSSubClass == 30] %>% table() %>% which.max() %>% names()
 dat$Exterior2nd[2152] = x
+
 #   KitchenQual
 x = dat$KitchenQual[dat$MSSubClass == 50] %>% table() %>% which.max() %>% names()
 dat$KitchenQual[1556] = x
+
 #   Functional
 x = dat$Functional[dat$MSSubClass == 20] %>% table() %>% which.max() %>% names()
 dat$Functional[2217] = x
 x = dat$Functional[dat$MSSubClass == 50] %>% table() %>% which.max() %>% names()
 dat$Functional[2474] = x
+
 #   SaleType
 x = dat$SaleType[dat$MSSubClass == 20] %>% table() %>% which.max() %>% names()
 dat$SaleType[2490] = x
+
 #   GarageCars
 x = dat$GarageCars[dat$GarageType == "Detchd"] %>% median(na.rm = TRUE)
 dat$GarageCars[2577] = x
+
 #   GarageArea
 x = dat$GarageArea[dat$GarageType == "Detchd"] %>% median(na.rm = TRUE)
 dat$GarageArea[2577] = x
+
 #   BsmtFinSF1, BsmtFinSF2, BsmtUnfSF, TotalBsmtSF, BsmtFullBath and BsmtHalfBath.
 dat[c(2121, 2189), c("BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF", "BsmtFullBath", "BsmtHalfBath")] =
     0
 
+print("Features in test dataset reporting NA values")
 na.count(dat[(indx+1):nrow(dat),])
 
 ```
 
 ### Saving a Baseline
 
-1.  We have "cleaned" both the train and test subsets.
+1.  We have "cleaned" both the *train* and *test* datasets.
 2.  We assign the `Id` as rownames for the examples and then drop the `Id` feature.
-3.  Finally, we separate the train and the test subsets and save then as *.Rda* files as baseline versions
+3.  Finally, we separate the *train* and the *test* datasets and save them as *.Rda* files as baseline versions
 
 ```{r baseline}
 rownames(dat) = dat$Id

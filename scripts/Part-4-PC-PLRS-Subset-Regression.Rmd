@@ -3,21 +3,18 @@ title: "Ames Housing Prices: Part IV - PC, PLS and Best Subset Regression "
 author: "Sanjeev Gadre"
 date: "June 28, 2019"
 output: 
-    md_document:
+    html_document:
         toc: TRUE
 ---
 
 ```{r setup, include=FALSE, message=FALSE}
-knitr::opts_chunk$set(warning = FALSE, echo = TRUE) #message = FALSE
+knitr::opts_chunk$set(warning = FALSE, echo = FALSE)
 ```
 
 Loading the required libraries.
 
-```{r libraries, echo=FALSE, message=FALSE}
+```{r libraries, echo=TRUE, message=FALSE}
 library(dplyr)
-library(ggplot2)
-library(glmnet)
-library(gridExtra)
 library(pls)
 library(leaps)
 
@@ -27,7 +24,7 @@ library(leaps)
 
 1.  We start by getting the previously cleaned *train* subset.
 
-```{r get-data}
+```{r get-data, echo=TRUE}
 train = readRDS("./RDA/train")
 
 n = nrow(train)
@@ -42,7 +39,26 @@ y = train$SalePrice %>% log()
     b.  Partial Least Square Regression
     c.  Regresion using the best subset.
 2.  We will use the *train-validate-test* strategy to fit an optimal model to the *train* data-set as well as estimate the likely test error.
+3.  The *PCR* and *PLS* algorithms work best when data is scaled. However the `pcr` and `plsr` functions are cumbersome to use with unscaled data especially when the data has features of different types. So it is best that we scale the data before using the algorigthm.
+4.  Only the `numeric` features can be scaled. Additionally, there are some features that while `numeric` in type have range of values that make them more like `fct` featuers and scaling needs to be avoided for these features.
+5.  We first identify the `numeric` features. We then use the *range* of these `numeric` features to identify features that are better treated as `fct` and then scale only the remaining `numeric` features.
+6.  Since we use `log(SalePrice)` as our dependent variable we must scale `log(SalePrice)` and not `SalePrice`.
 
+
+```{r scaling}
+train.scaled = train
+train.scaled$SalePrice = log(train$SalePrice)
+
+num.feat.indx = sapply(train, is.numeric)
+num.feat.rnge = sapply(train[, num.feat.indx], range)
+
+num.feat.like.fct = c("BsmtFullBath", "BsmtHalfBath", "FullBath", "HalfBath", "BedroomAbvGr", "KitchenAbvGr", 
+                      "Fireplaces", "GarageCars")
+num.feat.indx[num.feat.like.fct] = FALSE
+
+train.scaled[, num.feat.indx] = apply(train.scaled[, num.feat.indx], 2, scale)
+
+```
 
 ### Principal Component Regression
 
@@ -50,7 +66,7 @@ y = train$SalePrice %>% log()
 
 ```{r pcr}
 set.seed(1970)
-fit = pcr(log(SalePrice)~., data = train, ncomp = p, center = TRUE, validation = "none", model = FALSE)
+fit = pcr(SalePrice~., data = train.scaled, ncomp = p, center = FALSE, validation = "none", model = FALSE)
 
 set.seed(1970)
 cv.out = crossval(fit, segments = 10, segment.type = "random")
@@ -68,11 +84,11 @@ print(paste("For the model with lowest mean squared test errror, the optimal num
 
 ### Partial Least Square Regression
 
-1.  We use the `pls` library's cross-validation function `crossval` for selection of optimal number of principal components and estimating the test error.
+1.  We use the `pls` library's cross-validation function `crossval` for selection of optimal number of partial least square directions and estimating the test error.
 
 ```{r pls}
 set.seed(1970)
-fit = plsr(log(SalePrice)~., data = train, ncomp = p, center = TRUE, validation = "none", model = FALSE)
+fit = plsr(SalePrice~., data = train.scaled, ncomp = p, center = FALSE, validation = "none", model = FALSE)
 
 set.seed(1970)
 cv.out = crossval(fit, segments = 10, segment.type = "random")
@@ -81,7 +97,8 @@ opt.z = cv.out$validation$adj %>% which.min()
 
 est.test.err = cv.out$validation$adj %>% min() %>% round(digits = 4)
 
-print(paste("The estimated mean squared test error for a principal component regression model =", est.test.err))
+print(paste("The estimated mean squared test error for a partial least square regression model =",
+            est.test.err))
 print(paste("For the model with lowest mean squared test errror, the optimal number partial least square directions = ", opt.z))
 
 ```
@@ -186,8 +203,7 @@ print(paste("The estimated mean squared test error for a best subset (backward) 
 ```
 
 *Observations*
-1.  The Principal Component Regression model underperforms the penalised regression models.
-2.  The Partial Least Squares Regression models outperforms the penalised regression models; it currently is the best performing model.
-3.  The Best Subset Selection Regression model underperforms all the models tried so far.
+1.  None of the dimensionality reducing regression models outperform the penalised regression models.
+
 
 

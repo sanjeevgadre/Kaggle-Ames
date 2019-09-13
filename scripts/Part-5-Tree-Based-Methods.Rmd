@@ -3,12 +3,12 @@ title: "Ames Housing Prices: Part V - Tree Based Methods"
 author: "Sanjeev Gadre"
 date: "June 28, 2019"
 output: 
-    md_document:
+    html_document:
         toc: TRUE
 ---
 
 ```{r setup, include=FALSE, message=FALSE}
-knitr::opts_chunk$set(warning = FALSE, echo = TRUE) #message = FALSE
+knitr::opts_chunk$set(warning = FALSE, echo = FALSE)
 ```
 
 Loading the required libraries.
@@ -25,7 +25,7 @@ library(gbm)
 
 1.  We start by getting the previously cleaned *train* subset.
 
-```{r get-data}
+```{r get-data, echo=TRUE}
 train = readRDS("./RDA/train")
 
 n = nrow(train)
@@ -44,10 +44,13 @@ y = train$SalePrice %>% log()
 ### Random Forest Ensemble
 
 1.  Since the *random forest* algorithm uses a *bootstrap* sampling strategy, the function `randomforest()` offers an easy built-in way to estimate test error without the need for an explicit *train-test* strategy.
-2.  We iterate through different values of mumber of variables randomly sampled as candidates at each split allowing us to compare a random forest ensemble with a bagged tree ensemble in the same pass
+2.  We iterate through different values of mumber of variables randomly sampled as candidates at each split allowing us to compare a random forest ensemble with a bagged tree ensemble in the same pass.
+3.  For the two parameters to optimise we use the following sets
+    a.  *number of trees grown*  - {100, 500, 2500}, and 
+    b.  *number of features randomly chosen for a node split* - {p/9, p/3, p}, where is p is the number of features.
+4.  (From the help file) For large data sets, especially those with large number of variables, calling randomForest via the formula interface is not advised: There may be too much overhead in handling the formula.
 
 ```{r randomforest}
-#   (From the help file) For large data sets, especially those with large number of variables, calling randomForest via the formula interface is not advised: There may be too much overhead in handling the formula.
 x = model.matrix(SalePrice~., data = train)
 
 forest.size = c(100, 500, 2500)
@@ -84,7 +87,9 @@ print(paste("For the least mean squared test errror, the optimal number of trees
 
 1.  The function `gbm()` offers an in-built *n*-fold cross validation functionality that allows for an easy way to estimate test error without the need for an explicit *train-test* strategy.
 2.  We iterate through a series of values for the parameters `interaction depth` and `learning rate` to identify the boosted tree ensemble model with the least estimated mean squared test error.
-
+3.  For the two parameters to optimise we use the following sets
+    a.  *interaction depth*  - {1, 2, 3, 4}, and 
+    b.  *learning rate* - {1, 0.3, 0.1, 0.03, 0.1}
 
 ```{r boosted-trees}
 depth = 1:4
@@ -116,3 +121,6 @@ print(paste("For the model with lowest mean squared test errror, the optimal int
 
 ```
 
+*Observations*
+
+1.  While the *Random Forest Ensemble* does not outperform the penalised regression models, the *Boosted Tree Ensemble* certainly does.

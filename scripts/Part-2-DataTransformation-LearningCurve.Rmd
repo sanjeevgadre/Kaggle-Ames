@@ -1,0 +1,210 @@
+---
+title: "Ames Housing Prices: Part II - Data Transformation and Learning Curve"
+author: "Sanjeev Gadre"
+date: "June 28, 2019"
+output: 
+    html_document:
+        toc: TRUE
+---
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(warning = FALSE, echo = FALSE)
+```
+
+Loading the required libraries.
+
+```{r libraries, echo=TRUE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+library(gridExtra)
+
+```
+
+### Getting the Data
+
+1.  We start by getting the previously cleaned *train* dataset.
+
+```{r get-data, echo=TRUE}
+train = readRDS("./RDA/train")
+
+```
+
+### Investigating Likely Heteroscedacity
+
+1.  To investigate heterscedacity we plot the **Studentized Residuals** against the dependent variable, `SalePrice`, for all the examples.
+
+```{r homoscedacity-1}
+fit = lm(SalePrice~., data = train)
+
+res.df = data.frame(DepVar = train$SalePrice, StndRes = fit$residuals/sd(fit$residuals))
+
+res.df %>% ggplot(aes(DepVar, StndRes))+ geom_point()+ 
+    labs(title = " ", x = "Sale Price", y = "Studentized Residuals")
+
+```
+
+**Observations**
+
+1.  As `SalePrice` gets larger, the studentized residuals of the linear model also tend to get larger and this trend indicates potential heteroscedacity in the response variable. 
+2.  We attempt to eliminate this heteroscedacity by using the log values of the dependent variable in building the linear fit model.
+3.  To ascertain if we have eliminated heteroscedacity we once again plot the studentized residuals against the *new* dependent variable.
+
+```{r homoscedacity-2}
+fit = lm(log(SalePrice)~., data = train)
+res.df$DepVar = log(train$SalePrice)
+res.df$StndRes = fit$residuals
+res.df %>% ggplot(aes(DepVar, StndRes))+ geom_point()+ 
+    labs(title = " ", x = "Log of Sale Price", y = "Studentized Residuals")
+
+```
+
+**Observations**
+
+1.  We see that the heteroscedacity in the response variable is now eliminated and therefore conclude that we should **use the log value of the dependent variable** (`Sale Price`) when building a model.
+
+
+### Identifying *Extreme* Examples
+
+1.  We identify *high-levarage* and *outlier* examples. To that end we use the following hurdles:
+    a.  An example is a high-leverage point if its *leverage statistic is 10 times of more than the average leverage* for all observations.
+    b.  An example is an outlier if its *studentized residual is greater than 3*.
+2.  We fit a linear regression model to the data and use the model statistics to identify the extreme examples.
+
+```{r xtrm-ex-1}
+res.df$LvrgStat = hatvalues(fit)
+rownames(res.df) = rownames(train)
+
+#   Hurdle for a high leverage datapoint 
+#   Avergae high-leverage for the data-set = ((number of features)+1)/(number of examples)
+h.stat.hrdl = 10*(ncol(train)/nrow(train))
+
+#   Hurdle for outlier point
+outlier.hrdl = 3
+
+res.df = res.df %>% 
+    mutate(., cndt = ifelse(res.df$StndRes > outlier.hrdl & res.df$LvrgStat >= h.stat.hrdl, "Both", 
+                            ifelse(res.df$StndRes > outlier.hrdl, "Outlier", 
+                                   ifelse(res.df$LvrgStat >= h.stat.hrdl, "HiLeverage", "None"))))
+
+print("The number of type of extreme examples identified")
+table(res.df$cndt)
+
+```
+
+**Observations**
+
+1.  There are 75 data point that are likely hi-leverage. 
+    a.  We consider the impact on the quality of fit after excluding each one of them individually from the dataset to which the linear model is fitted.
+2.  We first establish a baseline for cross-validated estimated test error for the linear model using all data points. We then compare the improvement in this measure when each of these 75 data points are excluded individually and the penalised linear model is refitted.
+3.  We use the `glmnet` package as there is a ready function to calculate cross-validated estimated test error.To *mimic* a non-penalised linear fit, we use extremely small values for the penalty factor lambda.
+4.  We identify those candidate data points that reduce the MSE by 20% i.e. mean error ~10%.
+
+```{r xtrm-ex-2}
+x = model.matrix(data = train, SalePrice~.)[,-1]
+y = train$SalePrice %>% log()
+cndt = rownames(res.df[(res.df$cndt != "None"),]) %>% as.integer()
+
+set.seed(1970)
+cv.mse.base = cv.glmnet(x, y, lambda = c(10^-10,0))$cvm[1]
+
+cv.mse.cndt = data.frame(Id = cndt, MSE = c(rep(0, length(cndt))))
+i=1
+#   This loop will take some time to complete
+for (c in cndt) { 
+    set.seed(1970) 
+    cv.mse.cndt[i,2] = cv.glmnet(x[-c,], y[-c], lambda = c(10^-10,0))$cvm[1] 
+    i = i+1
+}
+
+cv.mse.cndt = cv.mse.cndt %>% mutate(ratio = cv.mse.cndt$MSE/cv.mse.base)
+cv.mse.cndt = cv.mse.cndt %>% mutate(cndt = ifelse(ratio < 0.8, TRUE, FALSE))
+
+cv.mse.cndt[cv.mse.cndt$cndt == TRUE, c("Id", "ratio")]
+
+cndt = cv.mse.cndt[cv.mse.cndt$cndt == TRUE, "Id"]
+
+print("Candidate data points that reduce the MSE by 20% i.e. mean error ~10%")
+res.df[cndt,]
+
+```
+
+**Observations**
+
+1.  We find that 3 data points, Id nos. 272, 1276 and 1299, when excluded individually from the data used to model a linear fit, reduce the baseline model's mean squared error by over 20% (i.e. reduce the error by over 10.6%). These three points should therefore be excluded from building any model using the train subset.
+2.  Further we see that these points are likely hi-leverage points which further strengthens the decision to exclude them when building the model.
+
+### Learning Curves
+
+1.  Before proceeding further with feature engineering, it would be worthwhile to draw some *Learning Curves* to determine if a basic logistical regression model suffers from high bias or high variance. This will inform our feature engineering better.
+2.  We divide the *train* dataset into a *train* subset and a *cval* subset in the ratio of 70:30. We shuffle the train dataset 5 times to improve our estimates for the learning curve.
+3.   In forming the *Learning Curves*,we use small sized subsets of the train data and it is likely that for certain factor variables all levels may not be represented in the *train* subset or the *cval* subset. This causes error in the `predict.lm` function and we therefore need to use the lower-level `lm.fit` function when fitting a linear model. This requires that the independent variables be provided in a model matrix format.
+
+```{r learning-curves}
+train = train[-cndt,]
+
+lc.steps = 25
+err.train = rep(0, lc.steps); err.val = err.train
+
+for (k in 1:5) {
+    set.seed(k)
+    indx = sample(nrow(train), 0.7*nrow(train), replace = FALSE)
+    lc.step.size = length(indx)/lc.steps
+    lc.set.size = seq(lc.step.size, length(indx), length.out = lc.steps) %>% round(digits = 0)
+    
+   
+    x = model.matrix(SalePrice~., data = train)
+    y = train$SalePrice %>% log()
+    
+    for (i in 1:lc.steps) {
+        x.subset = x[indx[1:lc.set.size[i]],]; y.subset = y[indx[1:lc.set.size[i]]]
+        fit = lm.fit(x.subset, y.subset)
+        err.train[i] = err.train[i] + sqrt(mean(fit$residuals^2))
+        
+        fit.coeff = fit$coefficients
+        fit.coeff = ifelse(is.na(fit.coeff), 0, fit.coeff)
+        
+        y.val = y[-indx]
+        y.val.hat = x[-indx,]%*%fit.coeff %>% as.numeric()
+        err.val[i] = err.val[i] + sqrt(mean((y.val.hat - y.val)^2))
+    }
+}
+
+err.train = err.train/5; err.val = err.val/5
+err.df = cbind(Size = lc.set.size, Train = err.train, Val = err.val, err.ratio = err.train/err.val) %>%
+    as.data.frame()
+
+lc.plot.1 = err.df %>% ggplot(aes(x = Size))+ 
+    geom_line(aes(y = Train, color = "Train.Subset.Error"), na.rm = TRUE)+ 
+    geom_line(aes(y = Val, color = "CV.Subset.Error"), na.rm = TRUE)+ 
+    labs(title = "Learning Curves", x = "Train Subset Sample Size", y = "RMSE")+
+    scale_colour_manual(name="Key", values=c(Train.Subset.Error ="red", CV.Subset.Error ="blue"))+ 
+    theme(legend.position = "bottom")+ ylim(0, 0.5)
+
+lc.plot.2 = err.df %>% ggplot(aes(x = Size, y = err.ratio))+ geom_line(na.rm = TRUE)+
+    labs(title = "Learning Curves", x = "Train Subset Sample Size", y = "Ratio of Train Error to Cval Error")+
+    ylim(0,1)
+
+grid.arrange(lc.plot.1, lc.plot.2, ncol = 2)
+
+```
+
+**Observation**
+
+1.  The *train* subset error and *cval* subset error curves are trending closer to each other but the gap is continually narrowing as the size of the *train* subest increases. This is even more apparent in the graph on the right. This indicates that a linear regression fit is likely to suffer from high variance.
+2.  We have two options - either increase the number of train examples or reduce the dimensions of the *train* data-set. Clearly the former is not an option and so we propose to use learning algorithms that reduce the dimensionality of the *train* dataset.
+3.  We propose to use the following learning algorithms:
+    a.  Ridge-penalised linear regression
+    b.  Lasso-penalised linear regression
+    c.  Linear regression using prinicipal components
+    d.  Linear regression using partial least square
+4.  Additionally, we propose to use 2 non-parametric, tree based learning algorithms:
+    a.  Random Forest ensemble
+    b.  Boosted Tree ensemble
+
+### Saving a Baseline
+
+```{r baseline, echo=TRUE}
+saveRDS(train, "./RDA/train")
+
+```

@@ -3,12 +3,12 @@ title: "Ames Housing Prices: Part III - Penalised Regression"
 author: "Sanjeev Gadre"
 date: "June 28, 2019"
 output: 
-    md_document:
+    html_document:
         toc: TRUE
 ---
 
 ```{r setup, include=FALSE, message=FALSE}
-knitr::opts_chunk$set(warning = FALSE, echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, echo = FALSE)
 ```
 
 Loading the required libraries.
@@ -25,7 +25,7 @@ library(gridExtra)
 
 1.  We start by getting the previously cleaned *train* subset.
 
-```{r get-data}
+```{r get-data, echo=TRUE}
 train = readRDS("./RDA/train")
 
 ```
@@ -36,7 +36,7 @@ train = readRDS("./RDA/train")
 2.  The `glmnet` package offers the `cv.glmnet()` function which allows a simple method to perform a n-fold cross validation to estimate the mean squared test error.
 3.  We first establish a baseline by estimating the likely test error for an un-penalised linear regresssion model.
 
-```{r common}
+```{r common, echo=TRUE}
 n = nrow(train)
 p = ncol(train) - 1
 y = train$SalePrice %>% log()

@@ -1,0 +1,194 @@
+---
+title: "Ames Housing Prices: Part VI - Predictions"
+author: "Sanjeev Gadre"
+date: "June 28, 2019"
+output: 
+    html_document:
+        toc: TRUE
+---
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(warning = FALSE, echo = FALSE) #message = FALSE
+```
+
+Loading the required libraries.
+
+```{r libraries, echo=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+library(pls)
+library(gbm)
+
+```
+
+### Getting the Data
+
+1.  We start by getting the previously cleaned *train* subset.
+
+```{r get-data, echo=TRUE}
+train = readRDS("./RDA/train")
+test = readRDS("./RDA/test")
+
+```
+
+### Introduction
+
+1.  Comparing the multiple learning algorithms employed using the estimated mean squared test error as a measure of success, we shortlist the following to predict the `SalePrice` for the *test* dataset.
+    a.  Ridge Penalised Linear Regression (est. test set error = 0.0174)
+    b.  Lasso Penalised Linear Regression (est. test set error = 0.0176)
+    c.  Partial Least Square Regression (estimated test set error = 0.0587)
+    d.  Boosted Tree Ensemble (estimated test set error = 0.015)
+2.  We are including the Partial Least Square Regression Model to ensure that it performs as poorly on the test dataset as it does on the train set, thereby validating the approach taken through this entire project.
+
+```{r common-pred}
+n.train = nrow(train)
+n.test = nrow(test)
+p = ncol(train)-1
+y.train = train$SalePrice %>% log()
+x.train = model.matrix(SalePrice~., data = train)[,-1]
+x.test = model.matrix(SalePrice~., data = test)[,-1]
+
+```
+
+### Ridge Penalised Linear Regression - Predictions
+
+1.  (From the help file) The results of `cv.glmnet` are random, since the folds are selected at random. We will therefore run `cv.glmnet` 5 times, for each iteration compute the prediction for the test set and then average the prediction.
+
+```{r ridge-pred}
+y.test.hat = rep(0, n.test)
+for (i in 1:5) {
+    set.seed(i)
+    fit = glmnet(x.train, y.train, family = "gaussian", alpha = 1)
+    bestlambda = cv.glmnet(x.train, y.train, type.measure = "mse", alpha = 1)$lambda.min
+        
+    y.test.hat = y.test.hat + predict(fit, newx = x.test, s = bestlambda, type = "response")
+}
+
+y.test.hat = y.test.hat/5 
+y.test.hat = exp(y.test.hat)
+
+write.table(y.test.hat, file = "./data/out-ridge.csv", quote = FALSE, sep = ",",
+            row.names = TRUE, col.names = "Id,SalePrice")
+
+```
+
+### Lasso Penalised Linear Regression Predictions
+
+1.  We use the same strategy as for the Ridge Penalised model
+
+```{r lasso-pred}
+y.test.hat = rep(0, n.test)
+for (i in 1:5) {
+    set.seed(i)
+    fit = glmnet(x.train, y.train, family = "gaussian", alpha = 0)
+    bestlambda = cv.glmnet(x.train, y.train, type.measure = "mse", alpha = 0)$lambda.min
+        
+    y.test.hat = y.test.hat + predict(fit, newx = x.test, s = bestlambda, type = "response")
+}
+
+y.test.hat = y.test.hat/5 
+y.test.hat = exp(y.test.hat)
+
+write.table(y.test.hat, file = "./data/out-lasso.csv", quote = FALSE, sep = ",",
+            row.names = TRUE, col.names = "Id,SalePrice")
+
+```
+
+### Partial Least Squares Regression
+
+1.  The Partial Least Squares Regression requires scaling of the numeric features (ref. discussion earlier on the same topic)
+2.  The results of `cross.val` are random, since the folds are selected at random. We will therefore run `cross.val` 5 times, for each iteration compute the prediction for the test set and then average the prediction.
+3  We scale the *test* dataset features to the same scale as the respective feature in the *train* dataset
+
+####    Scaling the data
+
+```{r pls-scaling-pred}
+train.scaled = train
+train.scaled$SalePrice = log(train$SalePrice)
+
+num.feat.indx = sapply(train, is.numeric)
+num.feat.rnge = sapply(train[, num.feat.indx], range)
+
+num.feat.like.fct = c("BsmtFullBath", "BsmtHalfBath", "FullBath", "HalfBath", "BedroomAbvGr", "KitchenAbvGr", 
+                      "Fireplaces", "GarageCars")
+num.feat.indx[num.feat.like.fct] = FALSE
+train.scale.centers = apply(train.scaled[, num.feat.indx], 2, mean)
+train.scale.sdev = apply(train.scaled[, num.feat.indx], 2, sd)
+
+train.scaled[, num.feat.indx] = apply(train.scaled[, num.feat.indx], 2, scale)
+
+
+test.scaled = test
+for (i in 1:length(num.feat.indx)) {
+    if (num.feat.indx[i]) {
+        feat = names(num.feat.indx[i])
+        test.scaled[, feat] = scale(test.scaled[, feat], center = train.scale.centers[feat], 
+                                    scale = train.scale.sdev[feat])
+    }
+}
+
+#   "Unlist" the scaled features to drop the attributes of the scaling stored in the dataframe
+test.scaled[, num.feat.indx] = unlist(test.scaled[, num.feat.indx])
+
+```
+
+####    Making Predictions
+
+```{r pls-pred}
+y.test.hat = rep(0, n.test)
+for (i in 1:5) {
+    set.seed(i)
+    fit = plsr(log(SalePrice)~., data = train.scaled, ncomp = p, center = FALSE, validation = "none", 
+               model = FALSE)
+    
+    set.seed(i)
+    cv.out = crossval(fit, segments = 10, segment.type = "random")
+    opt.z = cv.out$validation$adj %>% which.min()
+    
+    y.test.hat = y.test.hat + predict(fit, newdata = test.scaled, comps = opt.z, type = "response")
+}
+
+y.test.hat = y.test.hat/5
+
+#   "Unscaling" the dependent variable
+y.test.hat = y.test.hat*train.scale.sdev["SalePrice"] + train.scale.centers["SalePrice"]
+y.test.hat = exp(y.test.hat)
+
+write.table(y.test.hat, file = "./data/out-pls.csv", quote = FALSE, sep = ",",
+            row.names = TRUE, col.names = "Id,SalePrice")
+
+```
+
+### Boosted Tree Ensemble
+
+1.  We use the optimal interaction depth (= 4) and optimal learning rate (= 0.01) determined earlier through cross validation for the lowest estimated test error.
+
+```{r boosted-trees-pred}
+fit = gbm(log(SalePrice)~., data = train, distribution = "gaussian", n.trees = 2500, 
+          interaction.depth = 4, shrinkage = 0.01, cv.folds = 0, keep.data = TRUE)
+
+y.test.hat = predict(fit, newdata = test, n.trees = 2500, type = "response")
+y.test.hat = exp(y.test.hat)
+
+write.table(y.test.hat, file = "./data/out-gbm.csv", quote = FALSE, sep = ",",
+            row.names = rownames(test), col.names = "Id,SalePrice")
+
+```
+
+##  Results
+
+1.  We used four models to make predictions for the test dataset. The results, from the Kaggle evaluation, are as follows:
+
+**Model                               Est. Test Error             Act. Test Scores**
+
+Boosted Trees ensemble                  0.0150                      0.12555
+
+Ridge-penalised Regression              0.0174                      0.12966
+
+Lasso-penalised Regression              0.0176                      0.13044
+
+Partial Least Square Regression         0.0587                      0.41967
+
+
+2.  It is quite satisfactory that the actual ranking of the models by test scores mirrors the ranking of the models by estimated test error validating the approach used in evaluating the different models
