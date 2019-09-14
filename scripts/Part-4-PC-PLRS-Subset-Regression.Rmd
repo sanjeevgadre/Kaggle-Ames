@@ -3,8 +3,9 @@ title: "Ames Housing Prices: Part IV - PC, PLS and Best Subset Regression "
 author: "Sanjeev Gadre"
 date: "June 28, 2019"
 output: 
-    html_document:
+    md_document:
         toc: TRUE
+        toc_depth: 3
 ---
 
 ```{r setup, include=FALSE, message=FALSE}
@@ -14,6 +15,7 @@ knitr::opts_chunk$set(warning = FALSE, echo = FALSE)
 Loading the required libraries.
 
 ```{r libraries, echo=TRUE, message=FALSE}
+library(knitr)
 library(dplyr)
 library(pls)
 library(leaps)
@@ -25,7 +27,7 @@ library(leaps)
 1.  We start by getting the previously cleaned *train* subset.
 
 ```{r get-data, echo=TRUE}
-train = readRDS("./RDA/train")
+train = readRDS("../RDA/train")
 
 n = nrow(train)
 p = ncol(train)-1

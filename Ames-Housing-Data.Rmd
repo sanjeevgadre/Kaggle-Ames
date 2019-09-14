@@ -3,8 +3,9 @@ title: "Ames-Housing-Data: Experiments with ML Algorigthms"
 author: "Sanjeev Gadre"
 date: "Spetember 13, 2019"
 output: 
-    html_document:
+    md_document:
         toc: TRUE
+        toc_depth: 5
 ---
 
 ```{r setup, include=FALSE, message=FALSE}
@@ -14,6 +15,7 @@ knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
 Loading the required libraries.
 
 ```{r libraries, echo=TRUE, message=FALSE}
+library(knitr)
 library(dplyr)
 library(ggplot2)
 library(gridExtra)
@@ -1114,16 +1116,14 @@ write.table(y.test.hat, file = "./data/out-gbm.csv", quote = FALSE, sep = ",",
 
 1.  We used four models to make predictions for the test dataset. The results, from the Kaggle evaluation, are as follows:
 
-**Model                               Est. Test Error             Act. Test Scores**
-
-Boosted Trees ensemble                  0.0150                      0.12555
-
-Ridge-penalised Regression              0.0174                      0.12966
-
-Lasso-penalised Regression              0.0176                      0.13044
-
-Partial Least Square Regression         0.0587                      0.41967
-
+```{r results}
+x = data.frame(Model = c("Boosted Tree Ensemble", "Ridge Penalised Regression", 
+                         "Lasso Penalised Regression", "Partial Least Square Regression"), 
+               Est.Test.Error = c(0.0150, 0.0174, 0.0176, 0.0587),
+               Act.Test.Score = c(0.12588, 0.12995, 0.13111, 0.41913))
+kable(x, format = "html", align = c("l", "c", "c"),
+      col.names = c("Model", "Est Test Error", "Act Test Score"))
+```
 
 2.  It is quite satisfactory that the actual ranking of the models by test scores mirrors the ranking of the models by estimated test error validating the approach used in evaluating the different models
 

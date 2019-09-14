@@ -5,6 +5,7 @@ date: "June 28, 2019"
 output: 
     md_document:
         toc: TRUE
+        toc_depth: 3
 ---
 
 ```{r setup, include=FALSE, message=FALSE}
@@ -13,7 +14,8 @@ knitr::opts_chunk$set(warning = FALSE, echo = FALSE)
 
 Loading the required libraries.
 
-```{r libraries, echo=FALSE, message=FALSE}
+```{r libraries, echo=TRUE, message=FALSE}
+library(knitr)
 library(dplyr)
 library(ggplot2)
 library(gridExtra)
@@ -22,7 +24,7 @@ library(gridExtra)
 
 Loading required functions.
 
-```{r functions}
+```{r functions, echo=TRUE}
 na.count = function (dat){
   dat %>% apply(., 2, is.na) %>% apply(.,2,sum) %>% .[.!=0]
 }
@@ -36,8 +38,8 @@ na.count = function (dat){
 3.  We start by getting a sense of the *train* dataset and its structure.
 
 ```{r get-data}
-train = read.csv("./data/train.csv")
-test = read.csv("./data/test.csv")
+train = read.csv("../data/train.csv")
+test = read.csv("../data/test.csv")
 test$SalePrice = 1000
 
 dat = rbind(train, test)
@@ -348,8 +350,8 @@ dat = subset(dat, select = -Id)
 train = dat[1:indx,]
 test = dat[(indx+1):nrow(dat),]
 
-saveRDS(train, "./RDA/train")
-saveRDS(test, "./RDA/test")
+saveRDS(train, "../RDA/train")
+saveRDS(test, "../RDA/test")
 
 ```
 
