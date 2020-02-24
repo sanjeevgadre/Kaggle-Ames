@@ -1,5 +1,8 @@
 # The *Ames Housing - Predict the Price* Challenge on www.kaggle.com
 
+## Update 2020-02-24
+The project is now implemented in Python too.
+
 ##  Introduction
 The Ames Housing - Predict the Price presents an excellent case study for applying machine learning algorithm to derive insights, both causal and inferential.
 
@@ -42,3 +45,6 @@ For each of the learning algorithm I estimated the test set prediction accuracy 
 
 ##  The Directory Structure
 The entire project is available either as a single markdown document `Ames-Housing-Data.md` in the root directory or split into 6 sections, paralleling the discussion above, in the `/scripts` directory. The data, both input and output is in the `/data` directory. Finally the `/RDA` directory contains the RData created and used by the code in both the single document version and the 6-sections version.
+
+### Update 2020-02-34
+Added `/Python/scripts/` that hosts the Python code. Additionally the `Python/wip-data` directory contains intermediate data files.
